@@ -29,9 +29,72 @@
 ;;; Code:
 (require 'elfeed)
 (require 'elfeed-db)
+(require 'widget)
 (require 'seq)
 
+(define-widget 'elfeed-summary-query 'lazy
+  "A query to extract a subset of elfeed feeds."
+  :offset 4
+  :tag "Extract subset of elfeed feed list"
+  :type '(choice (symbol :tag "One tag")
+                 (cons :tag "Match title"
+                       (const :tag "Title" title)
+                       (choice (string :tag "String")
+                               (sexp :tag "Lisp expression")))
+                 (cons :tag "Match author"
+                       (const :tag "Author" author)
+                       (choice (string :tag "String")
+                               (sexp :tag "Lisp expression")))
+                 (cons :tag "Match URL"
+                       (const :tag "URL" url)
+                       (choice (string :tag "String")
+                               (sexp :tag "Lisp expression")))
+                 (cons :tag "AND"
+                       (const :tag "AND" and)
+                       (repeat elfeed-summary-query))
+                 (repeat :tag "OR (Implicit)" elfeed-summary-query)
+                 (cons :tag "OR"
+                       (const :tag "OR" or)
+                       (repeat elfeed-summary-query))))
+
+(define-widget 'elfeed-summary-group 'lazy
+  "A group of `elfeed-summary-query'"
+  :offset 4
+  :tag "Group"
+  :type '(repeat
+          (choice
+           (list :tag "Group"
+                 (cons
+                  (const :tag "Title" :title)
+                  (string :tag "Title"))
+                 (cons
+                  (const :tag "Sort function" :sort-fn)
+                  (choice
+                   function
+                   (const :tag "None" nil)))
+                 (cons
+                  (const :tag "Elements" :elements)
+                  elfeed-summary-group))
+           elfeed-summary-query)))
+
+(defgroup elfeed-summary ()
+  "Feed summary inteface for elfeed."
+  :group 'elfeed)
+
+(defcustom elfeed-summary-settings '(((:title . "All feeds")
+                                      (:sort-fn . string-lessp)
+                                      (:elements nil)))
+  "Elfeed summary buffer settings."
+  :group 'elfeed-summary
+  :type 'elfeed-summary-group)
+
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
+  "Check if attributes of elfeed feed match QUERY.
+
+QUERY is a form as described in TODO.
+
+TAGS is a list of tags from `elfeed-feeds', TITLE, URL, AUTHOR
+and TITLE-META are attributes of the `elfeed-db-feed'."
   (cond
    ;; symbol
    ((symbolp query) (member query tags))
@@ -96,6 +159,9 @@
          query)))))
 
 (defun elfeed-summary--get-feeds (query)
+  "Get elfeed feeds that match QUERY.
+
+QUERY is described in TODO."
   (cl-loop for feed in elfeed-feeds
            for url = (car feed)
            for tags = (cdr feed)
@@ -108,10 +174,6 @@
                :url url
                :author (plist-get (car (elfeed-feed-author feed)) :name))
            collect feed))
-
-(elfeed-summary--get-feeds '(or (title . "Andrea")
-                                (author . "Bozhidar")
-                                (url . (rx "sacha"))))
 
 (provide 'elfeed-summary)
 ;;; elfeed-summary.el ends here
