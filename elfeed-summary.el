@@ -27,10 +27,13 @@
 ;; TODO
 
 ;;; Code:
+(require 'cl-lib)
 (require 'elfeed)
 (require 'elfeed-db)
-(require 'widget)
+(require 'elfeed-search)
+(require 'magit-section)
 (require 'seq)
+(require 'widget)
 
 (define-widget 'elfeed-summary-query 'lazy
   "A query to extract a subset of elfeed feeds."
@@ -61,56 +64,76 @@
                        (const :tag "OR" or)
                        (repeat elfeed-summary-query))))
 
-(define-widget 'elfeed-summary-group 'lazy
-  "A group of `elfeed-summary-query'"
+(define-widget 'elfeed-summary-setting-elements 'lazy
+  "Type widget for `elfeed-summary-settings'"
   :offset 4
-  :tag "Group"
+  :tag "Settings list"
   :type '(repeat
           (choice
            (cons :tag "Group"
                  (const group)
-                 (list :tag "Group params"
-                       (cons
-                        (const :tag "Title" :title)
-                        (string :tag "Title"))
-                       (cons
-                        (const :tag "Sort function" :sort-fn)
-                        (choice
-                         function
-                         (const :tag "None" nil)))
-                       (cons
-                        (const :tag "Elements" :elements)
-                        elfeed-summary-group)))
-           elfeed-summary-query)))
+                 (repeat :tag "Group params"
+                         (choice
+                          (cons
+                           (const :tag "Title" :title)
+                           (string :tag "Title"))
+                          (cons
+                           (const :tag "Sort function" :sort-fn)
+                           (choice
+                            function
+                            (const :tag "None" nil)))
+                          (cons
+                           (const :tag "Elements" :elements)
+                           elfeed-summary-setting-elements))))
+           (cons :tag "Query"
+                 (const query)
+                 elfeed-summary-query)
+           (cons :tag "Search"
+                 (const search)
+                 (repeat :tag "Search params"
+                         (choice
+                          (cons :tag "Filter"
+                                (const :tag "Filter" :filter)
+                                (string :tag "Filter string"))
+                          (cons :tag "Title"
+                                (const :tag "Title" :title)
+                                (string :tag "Filter title")))))
+           (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
   "Feed summary inteface for elfeed."
   :group 'elfeed)
 
-(defcustom elfeed-summary-settings '((group (:title . "All feeds")
-                                            (:sort-fn . string-lessp)
-                                            (:elements :all)))
+(defcustom elfeed-summary-settings
+  '((group (:title . "All feeds")
+           (:sort-fn . string-lessp)
+           (:elements (query . :all)))
+    (group (:title . "Searches")
+           (:elements (search
+                       (:filter . "@7-days-ago +unread")
+                       (:title . "Unread entries this week"))
+                      (search
+                       (:filter . "@6-months-ago emacs")
+                       (:title . "Something about Emacs")))))
   "Elfeed summary buffer settings.
 
 This is a list of these possible items:
-- group
-- query
+- Group `(group . <group-params>)'
+  Groups are used to group elements under collapsible sections.
+- Query `(query . <query-params>)'
+  Query extracts a subset of elfeed feeds based on the given criteria.
+  Each found feed will be represented as a line.
+- Search `(search . <search-params>)'
+  Elfeed search, as defined by `elfeed-search-set-filter'.
 - a few special forms
 
-Groups are used to group queries under collapsible sections.
-
-A group is a cons cell like (group . <params>), where params are an
-alist with the following attributes:
+`<group-params>' is an alist with the following keys:
 - `:title' (mandatory)
 - `:elements' (mandatory) - also a list of groups and queries
 - `:sort-fn' - function used to sort titles of feeds, found by queries
   in `:elements'.  E.g. `string-greaterp' for alphabetical order.
 
-Query is a form that extract a subset of elfeed feeds based on
-some criteria.  In the summary buffer, each feed found by the
-query will be represented as a line.
-
-Query can be:
+`<query-params>' can be:
 - A symbol of a tag.
   A feed will be matched if it has that tag.
 - `:all'.  Will match anything.
@@ -125,22 +148,27 @@ Query can be:
   Match if any of the conditions 1, 2, ..., n match.
 - `(not <query>)'
 
-Feed tags are taken from `elfeed-feeds'.
+Feed tags for query are taken from `elfeed-feeds'.
 
 Query examples:
 - `(emacs lisp)'
   Return all feeds that have either \"emacs\" or \"lisp\" tags.
 - `(and emacs lisp)'
   Return all feeds that have both \"emacs\" and \"lisp\" tags.
-- `(and (title . \"Emacs\") (not planets))
+- `(and (title . \"Emacs\") (not planets))'
   Return all feeds that have \"Emacs\" in their title and don't have
   the \"planets\" tag.
+
+`<search-params>` is an alist with the following keys:
+- `:filter' (mandatory) filter string, as defined by
+  `elfeed-search-set-filter'
+- `:title' (mandatory) title
 
 Available special forms:
 - `:misc' - print out feeds, not found by any query above.
 - `:unread' - a special feed of all unread entries."
   :group 'elfeed-summary
-  :type 'elfeed-summary-group)
+  :type 'elfeed-summary-setting-elements)
 
 (defcustom elfeed-summary-look-back (* 60 60 24 180)
   "TODO"
@@ -156,6 +184,8 @@ Available special forms:
   '((t (:inherit magit-section-heading)))
   "Default face for the elfeed-summary group."
   :group 'elfeed-summary)
+
+;;; Logic
 
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
   "Check if attributes of elfeed feed match QUERY.
@@ -261,7 +291,8 @@ QUERY is described in `elfeed-summary-settings'."
            if (and (listp param) (eq (car param) 'group))
            append (elfeed-summary--extract-feeds
                    (cdr (assoc :elements (cdr param))))
-           else append (elfeed-summary--get-feeds param)))
+           else if (and (listp param) (eq (car param) 'query))
+           append (elfeed-summary--get-feeds (cdr param))))
 
 (defun elfeed-summary--build-tree-feed (feed unread-count total-count)
   (let* ((unread (or (gethash (elfeed-feed-id feed) unread-count) 0))
@@ -284,6 +315,33 @@ QUERY is described in `elfeed-summary-settings'."
       (unread . ,unread)
       (total . ,unread))))
 
+(defun elfeed-summary--build-search (search)
+  "TODO
+
+Implented the same way as `elfeed-search--update-list'."
+  (let* ((filter (elfeed-search-parse-filter (alist-get :filter search)))
+         (head (list nil))
+         (tail head)
+         (count 0))
+    (if elfeed-search-compile-filter
+        ;; Force lexical bindings regardless of the current
+        ;; buffer-local value. Lexical scope uses the faster
+        ;; stack-ref opcode instead of the traditional varref opcode.
+        (let ((lexical-binding t)
+              (func (byte-compile (elfeed-search-compile-filter filter))))
+          (with-elfeed-db-visit (entry feed)
+            (when (funcall func entry feed count)
+              (setf (cdr tail) (list entry)
+                    tail (cdr tail)
+                    count (1+ count)))))
+      (with-elfeed-db-visit (entry feed)
+        (when (elfeed-search-filter filter entry feed count)
+          (setf (cdr tail) (list entry)
+                tail (cdr tail)
+                count (1+ count)))))
+    `((search . ,search)
+      (count . ,count))))
+
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   (cl-loop for param in params
            if (and (listp param) (eq (car param) 'group))
@@ -291,16 +349,19 @@ QUERY is described in `elfeed-summary-settings'."
                      (children . ,(elfeed-summary--build-tree
                                    (cdr (assoc :elements (cdr param)))
                                    unread-count total-count misc-feeds)))
+           else if (and (listp param) (eq (car param) 'search))
+           collect (elfeed-summary--build-search param)
+           else if (and (listp param) (eq (car param) 'query))
+           append (cl-loop for feed in (elfeed-summary--get-feeds (cdr param))
+                           collect (elfeed-summary--build-tree-feed
+                                    feed unread-count total-count))
            else if (eq param :misc)
            append (cl-loop for feed in misc-feeds
                            collect (elfeed-summary--build-tree-feed
                                     feed unread-count total-count))
            else if (eq param :unread)
            collect (elfeed-summary--build-tree-unread unread-count)
-           else
-           append (cl-loop for feed in (elfeed-summary--get-feeds param)
-                           collect (elfeed-summary--build-tree-feed
-                                    feed unread-count total-count))))
+           else do (error "Can't parse: %s" (prin1-to-string param))))
 
 (defun elfeed-summary--get-data ()
   (let* ((feeds (elfeed-summary--extract-feeds
@@ -327,6 +388,11 @@ QUERY is described in `elfeed-summary-settings'."
         (elfeed-db-return)))
     (elfeed-summary--build-tree elfeed-summary-settings
                                 unread-count total-count misc-feeds)))
+
+;;; View
+
+(defun elfeed-summary--render (tree)
+  "TODO")
 
 (provide 'elfeed-summary)
 ;;; elfeed-summary.el ends here
