@@ -369,9 +369,9 @@ FEED-1 and FEED-2 are instances of `elfeed-feed'."
 QUERY is described in `elfeed-summary-settings'."
   (seq-sort
    elfeed-summary-feed-sort-fn
-   (cl-loop for feed in elfeed-feeds
-            for url = (car feed)
-            for tags = (cdr feed)
+   (cl-loop for entry in elfeed-feeds
+            for url = (car entry)
+            for tags = (cdr entry)
             for feed = (elfeed-db-get-feed url)
             if (elfeed-summary--match-tag
                 query
@@ -679,7 +679,7 @@ DATA is a `<search-group-params>' form as described in the
                    :notify (lambda (widget &rest _)
                              (elfeed)
                              (elfeed-search-set-filter
-                              (widget-get :filter)))
+                              (widget-get widget :filter)))
                    :filter (alist-get search-data :filter)
                    text)
     (widget-insert "\n")))
