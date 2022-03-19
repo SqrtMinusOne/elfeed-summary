@@ -680,7 +680,7 @@ DATA is a `<search-group-params>' form as described in the
                              (elfeed)
                              (elfeed-search-set-filter
                               (widget-get widget :filter)))
-                   :filter (alist-get search-data :filter)
+                   :filter (alist-get :filter search-data)
                    text)
     (widget-insert "\n")))
 
@@ -777,13 +777,17 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
     (unless (eq major-mode 'elfeed-summary-mode)
       (elfeed-summary-mode))
     (insert (elfeed-search--header) "\n\n")
-    (mapc #'elfeed-summary--render-item tree)
+    (magit-insert-section section
+      (magit-insert-heading)
+      (unless tree
+        (insert "No items found."))
+      (mapc #'elfeed-summary--render-item tree))
     (widget-setup)))
 
 (defun elfeed-summary--refresh ()
   "Refresh the elfeed summary tree."
   (interactive)
-  (when (eq (buffer-name) elfeed-summary-buffer)
+  (when (equal (buffer-name) elfeed-summary-buffer)
     (let ((inhibit-read-only t))
       ;; XXX It's funny that the normal `save-excursion' doesn't work
       ;; here and elfeed already has a workaround for this particular
