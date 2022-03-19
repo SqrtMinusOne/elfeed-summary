@@ -84,13 +84,11 @@
                            (const :tag "Title" :title)
                            (string :tag "Title"))
                           (cons
-                           (const :tag "Sort function" :sort-fn)
-                           (choice
-                            function
-                            (const :tag "None" nil)))
-                          (cons
                            (const :tag "Face" :face)
                            (face :tag "Face"))
+                          (cons
+                           (const :tag "Hide" :hide)
+                           (boleean :tag "Hide"))
                           (cons
                            (const :tag "Elements" :elements)
                            elfeed-summary-setting-elements))))
@@ -118,7 +116,6 @@
 
 (defcustom elfeed-summary-settings
   '((group (:title . "All feeds")
-           (:sort-fn . string-lessp)
            (:elements (query . :all)))
     (group (:title . "Searches")
            (:elements (search
@@ -142,9 +139,10 @@ This is a list of these possible items:
 `<group-params>' is an alist with the following keys:
 - `:title' (mandatory)
 - `:elements' (mandatory) - also a list of groups and queries
-- `:sort-fn' - function used to sort titles of feeds, found by queries
+  queries
   in `:elements'.  E.g. `string-greaterp' for alphabetical order.
 - `:face' - group face.  The default face if `elfeed-summary-group-face'.
+- `:hide' - if non-nil, collapse by default.
 
 `<query-params>' can be:
 - A symbol of a tag.
@@ -208,8 +206,9 @@ The default implementation, `elfeed-summary--feed-face-fn', calls
 (defcustom elfeed-summary-search-face-fn #'elfeed-summary--search-face-fn
   "Function to get the face of the search.
 
-Accepts two-arguments:
+Accepts the following arguments:
 - `<search-params>', as described in `elfeed-summary-settings'.
+- The number of found unread items.
 - The number of found items.
 
 The default implementation, `elfeed-summary--search-face-fn', calls
@@ -219,12 +218,29 @@ greater than zero."
   :group 'elfeed-summary
   :type 'function)
 
+(defcustom elfeed-summary-feed-sort-fn #'elfeed-summary--feed-sort-fn
+  "Function to sort feeds in query.
+
+Receives TODO"
+  :group 'elfeed-summary
+  :type 'function)
+
 (defconst elfeed-summary-buffer "*elfeed-summary*"
   "Elfeed summary buffer name")
 
 (defface elfeed-summary-group-face
   '((t (:inherit magit-section-heading)))
   "Default face for the elfeed-summary group."
+  :group 'elfeed-summary)
+
+(defface elfeed-summary-count-face
+  '((t (:inherit elfeed-search-title-face)))
+  "Face for the number of entries of a read feed or search"
+  :group 'elfeed-summary)
+
+(defface elfeed-summary-count-face-unread
+  '((t (:inherit elfeed-search-unread-title-face)))
+  "Face for the number of entries of an unread feed or search"
   :group 'elfeed-summary)
 
 ;;; Logic
@@ -310,22 +326,36 @@ and TITLE-META are attributes of the `elfeed-db-feed'."
            (cdr query)
          query)))))
 
+(defun elfeed-summary--feed-sort-fn (feed-1 feed-2)
+  "TODO"
+  (string-lessp
+   (downcase
+    (or (plist-get (elfeed-feed-meta feed-1) :title)
+        (elfeed-feed-title feed-1)
+        (elfeed-feed-id feed-1)))
+   (downcase
+    (or (plist-get (elfeed-feed-meta feed-2) :title)
+        (elfeed-feed-title feed-2)
+        (elfeed-feed-id feed-2)))))
+
 (defun elfeed-summary--get-feeds (query)
   "Get elfeed feeds that match QUERY.
 
 QUERY is described in `elfeed-summary-settings'."
-  (cl-loop for feed in elfeed-feeds
-           for url = (car feed)
-           for tags = (cdr feed)
-           for feed = (elfeed-db-get-feed url)
-           if (elfeed-summary--match-tag
-               query
-               :tags tags
-               :title (elfeed-feed-title feed)
-               :title-meta (plist-get (elfeed-feed-meta feed) :title)
-               :url url
-               :author (plist-get (car (elfeed-feed-author feed)) :name))
-           collect feed))
+  (seq-sort
+   elfeed-summary-feed-sort-fn
+   (cl-loop for feed in elfeed-feeds
+            for url = (car feed)
+            for tags = (cdr feed)
+            for feed = (elfeed-db-get-feed url)
+            if (elfeed-summary--match-tag
+                query
+                :tags tags
+                :title (elfeed-feed-title feed)
+                :title-meta (plist-get (elfeed-feed-meta feed) :title)
+                :url url
+                :author (plist-get (car (elfeed-feed-author feed)) :name))
+            collect feed)))
 
 (defun elfeed-summary--extract-feeds (params)
   (cl-loop for param in params
@@ -351,10 +381,10 @@ QUERY is described in `elfeed-summary-settings'."
               (faces . ,(funcall elfeed-summary-feed-face-fn feed all-tags))
               (tags . ,all-tags)))))
 
-(defun elfeed-summary--search-face-fn (search count)
+(defun elfeed-summary--search-face-fn (search unread _total)
   (let ((tags (append
                (alist-get :tags search)
-               (when (< 0 count)
+               (when (< 0 unread)
                  '(unread)))))
     (elfeed-search--faces tags)))
 
@@ -365,7 +395,8 @@ Implented the same way as `elfeed-search--update-list'."
   (let* ((filter (elfeed-search-parse-filter (alist-get :filter search)))
          (head (list nil))
          (tail head)
-         (count 0))
+         (unread 0)
+         (total 0))
     (if elfeed-search-compile-filter
         ;; Force lexical bindings regardless of the current
         ;; buffer-local value. Lexical scope uses the faster
@@ -373,18 +404,24 @@ Implented the same way as `elfeed-search--update-list'."
         (let ((lexical-binding t)
               (func (byte-compile (elfeed-search-compile-filter filter))))
           (with-elfeed-db-visit (entry feed)
-            (when (funcall func entry feed count)
+            (when (funcall func entry feed total)
               (setf (cdr tail) (list entry)
                     tail (cdr tail)
-                    count (1+ count)))))
+                    total (1+ total))
+              (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
+                (setq unread (1+ unread))))))
       (with-elfeed-db-visit (entry feed)
-        (when (elfeed-search-filter filter entry feed count)
+        (when (elfeed-search-filter filter entry feed total)
           (setf (cdr tail) (list entry)
                 tail (cdr tail)
-                count (1+ count)))))
+                total (1+ total))
+          (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
+            (setq unread (1+ unread))))))
     `(search . ((params . ,(cdr search))
-                (faces . ,(funcall elfeed-summary-search-face-fn (cdr search) count))
-                (count . ,count)))))
+                (faces . ,(funcall elfeed-summary-search-face-fn
+                                   (cdr search) unread total))
+                (unread . ,unread)
+                (total . ,total)))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   (cl-loop for param in params
@@ -438,6 +475,12 @@ Implented the same way as `elfeed-search--update-list'."
 (defvar-local elfeed-summary--tree nil
   "TODO")
 
+(defvar elfeed-summary--unread-padding 3
+  "TODO")
+
+(defvar elfeed-summary--total-padding 3
+  "TODO")
+
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
@@ -466,25 +509,52 @@ Implented the same way as `elfeed-search--update-list'."
   (let* ((feed (alist-get 'feed data))
          (title (or (plist-get (elfeed-feed-meta feed) :title)
                     (elfeed-feed-title feed)
-                    (elfeed-feed-id feed))))
-    (insert (propertize title 'face (alist-get 'faces data)))
+                    (elfeed-feed-id feed)))
+         (text (concat
+                (propertize
+                 (format (concat "%" (number-to-string
+                                      elfeed-summary--unread-padding)
+                                 "d / %-" (number-to-string
+                                           elfeed-summary--total-padding)
+                                 "d ")
+                         (alist-get 'unread data) (alist-get 'total data))
+                 'face
+                 (if (< 0 (alist-get 'unread data))
+                     'elfeed-summary-count-face-unread
+                   'elfeed-summary-count-face))
+                (propertize title 'face (alist-get 'faces data)))))
+    (insert text)
     (insert "\n")))
 
 (defun elfeed-summary--render-search (data)
-  (let ((search-data (alist-get 'params data)))
-    (insert (propertize
-             (alist-get :title search-data)
-             'face
-             (alist-get :face search-data)))
+  (let* ((search-data (alist-get 'params data))
+         (text (concat
+                (propertize
+                 (format (concat "%" (number-to-string
+                                      elfeed-summary--unread-padding)
+                                 "d / %-" (number-to-string
+                                           elfeed-summary--total-padding)
+                                 "d ")
+                         (alist-get 'unread data) (alist-get 'total data))
+                 'face
+                 (if (< 0 (alist-get 'unread data))
+                     'elfeed-summary-count-face-unread
+                   'elfeed-summary-count-face))
+                (propertize
+                 (alist-get :title search-data)
+                 'face
+                 (alist-get 'faces data)))))
+    (insert text)
     (insert "\n")))
 
 (defun elfeed-summary--render-group (data)
   (let ((group-data (alist-get 'params data)))
-    (magit-insert-section group (elfeed-summary-group-section)
+    (magit-insert-section group (elfeed-summary-group-section
+                                 nil (alist-get :hide group-data))
       (insert (propertize
                (alist-get :title group-data)
                'face
-               (alist-get :face group-data)))
+               (alist-get 'face data)))
       (insert "\n")
       (magit-insert-heading)
       (oset group group data)
@@ -502,14 +572,39 @@ Implented the same way as `elfeed-search--update-list'."
        (elfeed-summary--render-search data))
       (_ (error "Unknown tree item: %s" (prin1-to-string (car item)))))))
 
+(defun elfeed-summary--render-params (tree &optional max-unread max-total)
+  (unless max-unread
+    (setq max-unread 0
+          max-total 0))
+  (cl-loop for item in tree
+           for type = (car item)
+           if (eq type 'group)
+           do (let ((data (elfeed-summary--render-params
+                           (alist-get 'children (cdr item))
+                           max-unread max-total)))
+                (setq max-unread (max max-unread (nth 0 data))
+                      max-total (max max-total (nth 1 data))))
+           else if (or (eq type 'feed) (eq type 'search))
+           do (setq max-unread
+                    (max max-unread (alist-get 'unread (cdr item)))
+                    max-total
+                    (max max-total (alist-get 'total (cdr item)))))
+  (list max-unread max-total))
+
 (defun elfeed-summary--render (tree)
   "TODO"
-  (let ((inhibit-read-only t))
+  (let* ((inhibit-read-only t)
+         (render-data (elfeed-summary--render-params tree))
+         (elfeed-summary--unread-padding
+          (length (number-to-string (nth 0 render-data))))
+         (elfeed-summary--total-padding
+          (length (number-to-string (nth 1 render-data)))))
     (erase-buffer)
     (setq-local elfeed-summary--tree tree)
     (unless (eq major-mode 'elfeed-summary-mode)
       (elfeed-summary-mode))
-    (mapc #'elfeed-summary--render-item tree)))
+    (mapc #'elfeed-summary--render-item tree)
+    (goto-char (point-min))))
 
 (defun elfeed-summary ()
   "TODO"
