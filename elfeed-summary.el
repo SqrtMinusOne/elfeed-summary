@@ -622,18 +622,17 @@ DATA is a `<feed-group-params>' form as described in
          (title (or (plist-get (elfeed-feed-meta feed) :title)
                     (elfeed-feed-title feed)
                     (elfeed-feed-id feed)))
+         (text-format-string
+          (concat "%" (number-to-string elfeed-summary--unread-padding)
+                  "d / %-" (number-to-string elfeed-summary--total-padding)
+                  "d "))
          (text (concat
                 (propertize
-                 (format (concat "%" (number-to-string
-                                      elfeed-summary--unread-padding)
-                                 "d / %-" (number-to-string
-                                           elfeed-summary--total-padding)
-                                 "d ")
+                 (format text-format-string
                          (alist-get 'unread data) (alist-get 'total data))
-                 'face
-                 (if (< 0 (alist-get 'unread data))
-                     'elfeed-summary-count-face-unread
-                   'elfeed-summary-count-face))
+                 'face (if (< 0 (alist-get 'unread data))
+                           'elfeed-summary-count-face-unread
+                         'elfeed-summary-count-face))
                 (propertize title 'face (alist-get 'faces data)))))
     (widget-create 'push-button
                    :notify (lambda (widget &rest _)
@@ -660,13 +659,13 @@ DATA is a `<feed-group-params>' form as described in
 DATA is a `<search-group-params>' form as described in the
 `elfeed-summary--get-data'."
   (let* ((search-data (alist-get 'params data))
+         (text-format-string
+          (concat "%" (number-to-string elfeed-summary--unread-padding)
+                  "d / %-" (number-to-string elfeed-summary--total-padding)
+                  "d "))
          (text (concat
                 (propertize
-                 (format (concat "%" (number-to-string
-                                      elfeed-summary--unread-padding)
-                                 "d / %-" (number-to-string
-                                           elfeed-summary--total-padding)
-                                 "d ")
+                 (format text-format-string
                          (alist-get 'unread data) (alist-get 'total data))
                  'face
                  (if (< 0 (alist-get 'unread data))
@@ -676,7 +675,13 @@ DATA is a `<search-group-params>' form as described in the
                  (alist-get :title search-data)
                  'face
                  (alist-get 'faces data)))))
-
+    (widget-create 'push-button
+                   :notify (lambda (widget &rest _)
+                             (elfeed)
+                             (elfeed-search-set-filter
+                              (widget-get :filter)))
+                   :filter (alist-get search-data :filter)
+                   text)
     (widget-insert "\n")))
 
 (defun elfeed-summary--render-group (data)
@@ -801,7 +806,7 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
 The buffer displays a list of feeds, as set up by the
 `elfeed-summary-settings' variable."
   (interactive)
-  (add-hook 'elfeed-update-init-hooks 'elfeed-summary--refresh)
+  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh)
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
     (kill-buffer buffer))
   (let ((buffer (get-buffer-create elfeed-summary-buffer)))
