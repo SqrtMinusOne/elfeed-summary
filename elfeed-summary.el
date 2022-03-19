@@ -1,4 +1,4 @@
-;;; elfeed-summary.el --- TODO -*- lexical-binding: t -*-
+;;; elfeed-summary.el --- Feed summary interface for elfeed -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2022 Korytov Pavel
 
@@ -24,7 +24,16 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;; TODO
+;; An extension for elfeed that provides a feed summary interface,
+;; inspired by newsboat but tree-based.
+;;
+;; `elfeed-summary' pops up the summary buffer.  The buffer shows
+;; individual feeds and searches, combined into groups.  This is
+;; determined by the `elfeed-summary-settings' variable.
+;;
+;; Also take a look at the package README at
+;; <https://github.com/SqrtMinusOne/elfeed-summary> for more
+;; information.
 
 ;;; Code:
 (require 'cl-lib)
@@ -40,9 +49,8 @@
 ;; the code.
 (declare-function evil-define-key* "evil-core")
 
-
 (define-widget 'elfeed-summary-query 'lazy
-  "A query to extract a subset of elfeed feeds."
+  "Type widget for the query part of `elfeed-summary-settings'."
   :offset 4
   :tag "Extract subset of elfeed feed list"
   :type '(choice (symbol :tag "One tag")
@@ -88,7 +96,7 @@
                            (face :tag "Face"))
                           (cons
                            (const :tag "Hide" :hide)
-                           (boleean :tag "Hide"))
+                           (boolean :tag "Hide"))
                           (cons
                            (const :tag "Elements" :elements)
                            elfeed-summary-setting-elements))))
@@ -124,7 +132,7 @@
                       (search
                        (:filter . "@6-months-ago emacs")
                        (:title . "Something about Emacs")))))
-  "Elfeed summary buffer settings.
+  "Elfeed summary settings.
 
 This is a list of these possible items:
 - Group `(group . <group-params>)'
@@ -182,22 +190,31 @@ Available special forms:
   :type 'elfeed-summary-setting-elements)
 
 (defcustom elfeed-summary-look-back (* 60 60 24 180)
-  "TODO"
+  "Timespan for which to count entries in the feed list.
+
+The default value is 180 days, which means that only entries less than
+180 days old will be counted.
+
+This has to be set up for efficiency because the elfeed database is
+time-based, so this allows queirying only the most recent part of the
+database.
+
+The value is in seconds."
   :group 'elfeed-summary
   :type 'integer)
 
 (defcustom elfeed-summary-default-filter "@6-months-ago "
-  "TODO"
+  "Default filter when switching to search buffer for a feed."
   :group 'elfeed-summary
   :type 'integer)
 
 (defcustom elfeed-summary-unread-tag 'unread
-  "Unread tag"
+  "Tag with which to consider the entry unread."
   :group 'elfeed-summary
   :type 'symbol)
 
 (defcustom elfeed-summary-feed-face-fn #'elfeed-summary--feed-face-fn
-  "Function to get the face of the feed.
+  "Function to get the face of the feed entry.
 
 Accepts two arguments:
 - The corresponding instance of `elfeed-feed'.
@@ -209,7 +226,7 @@ The default implementation, `elfeed-summary--feed-face-fn', calls
   :type 'function)
 
 (defcustom elfeed-summary-search-face-fn #'elfeed-summary--search-face-fn
-  "Function to get the face of the search.
+  "Function to get the face of the search entry.
 
 Accepts the following arguments:
 - `<search-params>', as described in `elfeed-summary-settings'.
@@ -226,33 +243,34 @@ greater than zero."
 (defcustom elfeed-summary-feed-sort-fn #'elfeed-summary--feed-sort-fn
   "Function to sort feeds in query.
 
-Receives TODO"
+Receives two instances of `elfeed-feed'."
   :group 'elfeed-summary
   :type 'function)
 
 (defconst elfeed-summary-buffer "*elfeed-summary*"
-  "Elfeed summary buffer name")
+  "Elfeed summary buffer name.")
 
 (defface elfeed-summary-group-face
   '((t (:inherit magit-section-heading)))
-  "Default face for the elfeed-summary group."
+  "Default face for the elfeed summary group."
   :group 'elfeed-summary)
 
 (defface elfeed-summary-count-face
   '((t (:inherit elfeed-search-title-face)))
-  "Face for the number of entries of a read feed or search"
+  "Face for the number of entries of a read feed or search."
   :group 'elfeed-summary)
 
 (defface elfeed-summary-count-face-unread
   '((t (:inherit elfeed-search-unread-title-face)))
-  "Face for the number of entries of an unread feed or search"
+  "Face for the number of entries of an unread feed or search."
   :group 'elfeed-summary)
 
 ;;; Logic
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
   "Check if attributes of elfeed feed match QUERY.
 
-QUERY is a form as described in `elfeed-summary-settings'.
+QUERY is a `<query-params>' form as described in
+`elfeed-summary-settings'.
 
 TAGS is a list of tags from `elfeed-feeds', TITLE, URL, AUTHOR
 and TITLE-META are attributes of the `elfeed-db-feed'."
@@ -332,7 +350,9 @@ and TITLE-META are attributes of the `elfeed-db-feed'."
          query)))))
 
 (defun elfeed-summary--feed-sort-fn (feed-1 feed-2)
-  "TODO"
+  "The default implementation of a feed sorting function.
+
+FEED-1 and FEED-2 are instances of `elfeed-feed'."
   (string-lessp
    (downcase
     (or (plist-get (elfeed-feed-meta feed-1) :title)
@@ -362,18 +382,19 @@ QUERY is described in `elfeed-summary-settings'."
                 :author (plist-get (car (elfeed-feed-author feed)) :name))
             collect feed)))
 
-(defun elfeed-summary--extract-feeds (params)
-  (cl-loop for param in params
-           if (and (listp param) (eq (car param) 'group))
-           append (elfeed-summary--extract-feeds
-                   (cdr (assoc :elements (cdr param))))
-           else if (and (listp param) (eq (car param) 'query))
-           append (elfeed-summary--get-feeds (cdr param))))
-
 (defun elfeed-summary--feed-face-fn (_feed tags)
+  "The default implementation of the feed face function.
+
+FEED is an instance of `elfeed-feed', TAGS is a list of tags from
+`elfeed-feeds'."
   (elfeed-search--faces tags))
 
 (defun elfeed-summary--build-tree-feed (feed unread-count total-count)
+  "Create a feed entry for the summary details tree.
+
+FEED is an instance of `elfeed-feed'.  UNREAD-COUNT and TOTAL-COUNT
+are hashmaps with feed ids as keys and corresponding numbers of
+entries as values."
   (let* ((unread (or (gethash (elfeed-feed-id feed) unread-count) 0))
          (tags (alist-get (elfeed-feed-id feed) elfeed-feeds
                           nil nil #'equal))
@@ -387,6 +408,13 @@ QUERY is described in `elfeed-summary-settings'."
               (tags . ,all-tags)))))
 
 (defun elfeed-summary--search-face-fn (search unread _total)
+  "The default implementation of the search entry face function.
+
+SEARCH is a `<search-params>' form as described in
+`elfeed-summary-settings'.
+
+UNREAD is the number of unread entries, TOTAL is the total number of
+entries."
   (let ((tags (append
                (alist-get :tags search)
                (when (< 0 unread)
@@ -394,7 +422,10 @@ QUERY is described in `elfeed-summary-settings'."
     (elfeed-search--faces tags)))
 
 (defun elfeed-summary--build-search (search)
-  "TODO
+  "Create a search entry for the summary details tree.
+
+SEARCH is a `<search-params>' form as described in
+`elfeed-summary-settings'.
 
 Implented the same way as `elfeed-search--update-list'."
   (let* ((filter (elfeed-search-parse-filter (alist-get :filter search)))
@@ -429,6 +460,16 @@ Implented the same way as `elfeed-search--update-list'."
                 (total . ,total)))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
+  "Recursively create the summary details tree.
+
+PARAMS is a form as described in `elfeed-summary-settings'.
+
+UNREAD-COUNT and TOTAL-COUNT are hashmaps with feed ids as keys and
+corresponding numbers of entries as values.
+
+MISC-FEEDS is a list of feeds that was not used in PARAMS.
+
+The resulting form is described in `elfeed-summary--get-data'."
   (cl-loop for param in params
            if (and (listp param) (eq (car param) 'group))
            collect `(group . ((params . ,(cdr param))
@@ -449,7 +490,47 @@ Implented the same way as `elfeed-search--update-list'."
                                     feed unread-count total-count))
            else do (error "Can't parse: %s" (prin1-to-string param))))
 
+(defun elfeed-summary--extract-feeds (params)
+  "Extract feeds from PARAMS.
+
+PARAMS is a form as described in `elfeed-summary-settings'."
+  (cl-loop for param in params
+           if (and (listp param) (eq (car param) 'group))
+           append (elfeed-summary--extract-feeds
+                   (cdr (assoc :elements (cdr param))))
+           else if (and (listp param) (eq (car param) 'query))
+           append (elfeed-summary--get-feeds (cdr param))))
+
 (defun elfeed-summary--get-data ()
+  "Create the summary details tree from scratch.
+
+The summary tree is created by extending `elfeed-summary-settings'
+with the data from the elfeed database.
+
+The return value is a list of alists of the following elements:
+- `(group . <tree-group-params>)'
+- `(feed . <feed-group-params>)'
+- `(search . <search-group-params>)'
+
+`<tree-group-params>' is an alist with the following keys:
+- `params' - `<group-params>' as described in
+  `elfeed-summary-settings'.
+- `face' - face for the group.
+- `children' - list of children, same structure as the root form.
+
+`<feed-group-params>' is an alist with the following keys:
+- `feed' - instance of `elfeed-feed'.
+- `tags' - feed tags.
+- `faces' - list of faces for the search entry.
+- `unread' - number of unread entries in the feed.
+- `total' - total number of entries in the feed.
+
+`<search-group-params>' is an alist with the following keys:
+- `params' - `<search-params>' as described in
+  `elfeed-summary-settings'.
+- `faces' - list of faces for the search entry.
+- `unread' - number of unread entries in the search results.
+- `total' - total number of entries in the search results."
   (let* ((feeds (elfeed-summary--extract-feeds
                  elfeed-summary-settings))
          (all-feeds (mapcar #'car elfeed-feeds))
@@ -478,19 +559,19 @@ Implented the same way as `elfeed-search--update-list'."
 
 ;;; View
 (defvar-local elfeed-summary--tree nil
-  "TODO")
+  "The current value of the elfeed summary tree.")
 
 (defvar elfeed-summary--unread-padding 3
-  "TODO")
+  "Padding for the unread column in the elfeed summary buffer.")
 
 (defvar elfeed-summary--total-padding 3
-  "TODO")
+  "Padding for the total column in the elfeed summary buffer.")
 
 (defvar elfeed-summary--only-unread nil
-  "TODO")
+  "Only show items with unread entries in the elfeed summary buffer.")
 
 (defvar elfeed-summary--search-show-read nil
-  "TODO")
+  "Do not filter +unread when switching to the elfeed search buffer.")
 
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
@@ -517,7 +598,7 @@ Implented the same way as `elfeed-search--update-list'."
   "A keymap for `elfeed-summary-mode-map'.")
 
 (define-derived-mode elfeed-summary-mode magit-section "Elfeed Summary"
-  "TODO"
+  "A major mode to display the elfeed summary data."
   :group 'org-journal-tags
   (setq-local buffer-read-only t))
 
@@ -525,11 +606,18 @@ Implented the same way as `elfeed-search--update-list'."
   ((group :initform nil)))
 
 (defun elfeed-summary--widget-press-show-read (pos &optional event)
+  "Press a button with `elfeed-summary--search-show-read' set to t.
+
+POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
   (let ((elfeed-summary--search-show-read t))
     (widget-button-press pos event)))
 
 (defun elfeed-summary--render-feed (data)
+  "Render a feed item for the elfeed summary buffer.
+
+DATA is a `<feed-group-params>' form as described in
+`elfeed-summary--get-data'."
   (let* ((feed (alist-get 'feed data))
          (title (or (plist-get (elfeed-feed-meta feed) :title)
                     (elfeed-feed-title feed)
@@ -567,6 +655,10 @@ Implented the same way as `elfeed-search--update-list'."
     (insert "\n")))
 
 (defun elfeed-summary--render-search (data)
+  "Render a search item for the elfeed summary buffer.
+
+DATA is a `<search-group-params>' form as described in the
+`elfeed-summary--get-data'."
   (let* ((search-data (alist-get 'params data))
          (text (concat
                 (propertize
@@ -588,6 +680,10 @@ Implented the same way as `elfeed-search--update-list'."
     (widget-insert "\n")))
 
 (defun elfeed-summary--render-group (data)
+  "Render a group item for the elfeed summary buffer.
+
+DATA is a `<tree-group-params>' from as described in
+`elfeed-summary-get-data'."
   (let ((group-data (alist-get 'params data)))
     (magit-insert-section group (elfeed-summary-group-section
                                  nil (alist-get :hide group-data))
@@ -602,6 +698,9 @@ Implented the same way as `elfeed-search--update-list'."
                do (elfeed-summary--render-item child)))))
 
 (defun elfeed-summary--render-item (item)
+  "Render one item for the elfeed summary buffer.
+
+ITEM is one alist as returned by `elfeed-summary--get-data'."
   (let ((data (cdr item)))
     (pcase (car item)
       ('group
@@ -613,6 +712,11 @@ Implented the same way as `elfeed-search--update-list'."
       (_ (error "Unknown tree item: %s" (prin1-to-string (car item)))))))
 
 (defun elfeed-summary--render-params (tree &optional max-unread max-total)
+  "Get rendering parameters from the summary tree.
+
+TREE is a form such as returned by `elfeed-summary--get-data'.
+
+MAX-UNREAD and MAX-TOTAL are paramenters for the recursive descent."
   (unless max-unread
     (setq max-unread 0
           max-total 0))
@@ -632,6 +736,9 @@ Implented the same way as `elfeed-search--update-list'."
   (list max-unread max-total))
 
 (defun elfeed-summary--leave-only-unread (tree)
+  "Leave only items that have unread elfeed entries in them.
+
+TREE is a form such as returned by `elfeed-summary--get-data'."
   (cl-loop for item in tree
            for type = (car item)
            if (and (eq type 'group)
@@ -646,7 +753,9 @@ Implented the same way as `elfeed-search--update-list'."
            collect item))
 
 (defun elfeed-summary--render (tree)
-  "TODO"
+  "Render the elfeed summary tree.
+
+TREE is a form such as returned by `elfeed-summary--get-data'."
   (when elfeed-summary--only-unread
     (setq tree (elfeed-summary--leave-only-unread tree)))
   (setq-local widget-push-button-prefix "")
@@ -667,6 +776,7 @@ Implented the same way as `elfeed-search--update-list'."
     (widget-setup)))
 
 (defun elfeed-summary--refresh ()
+  "Refresh the elfeed summary tree."
   (interactive)
   (when (eq (buffer-name) elfeed-summary-buffer)
     (let ((inhibit-read-only t))
@@ -679,13 +789,17 @@ Implented the same way as `elfeed-search--update-list'."
          (elfeed-summary--get-data))))))
 
 (defun elfeed-summary-toggle-only-unread ()
+  "Toggle displaying only items with unread elfeed entries."
   (interactive)
   (setq-local elfeed-summary--only-unread
               (not elfeed-summary--only-unread))
   (elfeed-summary--refresh))
 
 (defun elfeed-summary ()
-  "TODO"
+  "Display a feed summary for elfeed.
+
+The buffer displays a list of feeds, as set up by the
+`elfeed-summary-settings' variable."
   (interactive)
   (add-hook 'elfeed-update-init-hooks 'elfeed-summary--refresh)
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
