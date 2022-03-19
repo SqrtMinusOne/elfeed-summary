@@ -35,6 +35,12 @@
 (require 'seq)
 (require 'widget)
 
+;; XXX I want to have the compatibility with evil-mode without
+;; requiring it, so I check whether this function is bound later in
+;; the code.
+(declare-function evil-define-key* "evil-core")
+
+
 (define-widget 'elfeed-summary-query 'lazy
   "A query to extract a subset of elfeed feeds."
   :offset 4
@@ -83,6 +89,9 @@
                             function
                             (const :tag "None" nil)))
                           (cons
+                           (const :tag "Face" :face)
+                           (face :tag "Face"))
+                          (cons
                            (const :tag "Elements" :elements)
                            elfeed-summary-setting-elements))))
            (cons :tag "Query"
@@ -97,7 +106,10 @@
                                 (string :tag "Filter string"))
                           (cons :tag "Title"
                                 (const :tag "Title" :title)
-                                (string :tag "Filter title")))))
+                                (string :tag "Filter title"))
+                          (cons :tag "Tags"
+                                (const :tag "Tags" :tags)
+                                (repeat symbol)))))
            (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
@@ -132,6 +144,7 @@ This is a list of these possible items:
 - `:elements' (mandatory) - also a list of groups and queries
 - `:sort-fn' - function used to sort titles of feeds, found by queries
   in `:elements'.  E.g. `string-greaterp' for alphabetical order.
+- `:face' - group face.  The default face if `elfeed-summary-group-face'.
 
 `<query-params>' can be:
 - A symbol of a tag.
@@ -162,11 +175,11 @@ Query examples:
 `<search-params>` is an alist with the following keys:
 - `:filter' (mandatory) filter string, as defined by
   `elfeed-search-set-filter'
-- `:title' (mandatory) title
+- `:title' (mandatory) title.
+- `:tags' - list of tags to get the face of the entry.
 
 Available special forms:
-- `:misc' - print out feeds, not found by any query above.
-- `:unread' - a special feed of all unread entries."
+- `:misc' - print out feeds, not found by any query above."
   :group 'elfeed-summary
   :type 'elfeed-summary-setting-elements)
 
@@ -180,13 +193,41 @@ Available special forms:
   :group 'elfeed-summary
   :type 'symbol)
 
+(defcustom elfeed-summary-feed-face-fn #'elfeed-summary--feed-face-fn
+  "Function to get the face of the feed.
+
+Accepts two arguments:
+- The corresponding instance of `elfeed-feed'.
+- List of tags from `elfeed-feeds'.
+
+The default implementation, `elfeed-summary--feed-face-fn', calls
+`elfeed-search--faces'."
+  :group 'elfeed-summary
+  :type 'function)
+
+(defcustom elfeed-summary-search-face-fn #'elfeed-summary--search-face-fn
+  "Function to get the face of the search.
+
+Accepts two-arguments:
+- `<search-params>', as described in `elfeed-summary-settings'.
+- The number of found items.
+
+The default implementation, `elfeed-summary--search-face-fn', calls
+`elfeed-search--faces' with the contents of `:tags' of
+`<search-params>' plus `unread' if the number of found items is
+greater than zero."
+  :group 'elfeed-summary
+  :type 'function)
+
+(defconst elfeed-summary-buffer "*elfeed-summary*"
+  "Elfeed summary buffer name")
+
 (defface elfeed-summary-group-face
   '((t (:inherit magit-section-heading)))
   "Default face for the elfeed-summary group."
   :group 'elfeed-summary)
 
 ;;; Logic
-
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
   "Check if attributes of elfeed feed match QUERY.
 
@@ -294,6 +335,9 @@ QUERY is described in `elfeed-summary-settings'."
            else if (and (listp param) (eq (car param) 'query))
            append (elfeed-summary--get-feeds (cdr param))))
 
+(defun elfeed-summary--feed-face-fn (_feed tags)
+  (elfeed-search--faces tags))
+
 (defun elfeed-summary--build-tree-feed (feed unread-count total-count)
   (let* ((unread (or (gethash (elfeed-feed-id feed) unread-count) 0))
          (tags (alist-get (elfeed-feed-id feed) elfeed-feeds
@@ -301,19 +345,18 @@ QUERY is described in `elfeed-summary-settings'."
          (all-tags (if (< 0 unread)
                        (cons elfeed-summary-unread-tag tags)
                      tags)))
-    `((feed . ,feed)
-      (unread . ,unread)
-      (total . ,(or (gethash (elfeed-feed-id feed) total-count) 0))
-      (faces . ,(elfeed-search--faces all-tags))
-      (tags . ,all-tags))))
+    `(feed . ((feed . ,feed)
+              (unread . ,unread)
+              (total . ,(or (gethash (elfeed-feed-id feed) total-count) 0))
+              (faces . ,(funcall elfeed-summary-feed-face-fn feed all-tags))
+              (tags . ,all-tags)))))
 
-(defun elfeed-summary--build-tree-unread (unread-count)
-  (let ((unread (apply #'+ (maphash (lambda (k v) v) unread-count))))
-    `((feed . ,(elfeed-feed--create
-                :id unread
-                :title "Unread"))
-      (unread . ,unread)
-      (total . ,unread))))
+(defun elfeed-summary--search-face-fn (search count)
+  (let ((tags (append
+               (alist-get :tags search)
+               (when (< 0 count)
+                 '(unread)))))
+    (elfeed-search--faces tags)))
 
 (defun elfeed-summary--build-search (search)
   "TODO
@@ -339,16 +382,19 @@ Implented the same way as `elfeed-search--update-list'."
           (setf (cdr tail) (list entry)
                 tail (cdr tail)
                 count (1+ count)))))
-    `((search . ,search)
-      (count . ,count))))
+    `(search . ((params . ,(cdr search))
+                (faces . ,(funcall elfeed-summary-search-face-fn (cdr search) count))
+                (count . ,count)))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   (cl-loop for param in params
            if (and (listp param) (eq (car param) 'group))
-           collect `(,param
-                     (children . ,(elfeed-summary--build-tree
-                                   (cdr (assoc :elements (cdr param)))
-                                   unread-count total-count misc-feeds)))
+           collect `(group . ((params . ,(cdr param))
+                              (face . ,(or (alist-get :face (cdr param))
+                                           'elfeed-summary-group-face))
+                              (children . ,(elfeed-summary--build-tree
+                                            (cdr (assoc :elements (cdr param)))
+                                            unread-count total-count misc-feeds))))
            else if (and (listp param) (eq (car param) 'search))
            collect (elfeed-summary--build-search param)
            else if (and (listp param) (eq (car param) 'query))
@@ -359,8 +405,6 @@ Implented the same way as `elfeed-search--update-list'."
            append (cl-loop for feed in misc-feeds
                            collect (elfeed-summary--build-tree-feed
                                     feed unread-count total-count))
-           else if (eq param :unread)
-           collect (elfeed-summary--build-tree-unread unread-count)
            else do (error "Can't parse: %s" (prin1-to-string param))))
 
 (defun elfeed-summary--get-data ()
@@ -374,6 +418,7 @@ Implented the same way as `elfeed-search--update-list'."
                        (mapcar #'elfeed-db-get-feed)))
          (unread-count (make-hash-table :test #'equal))
          (total-count (make-hash-table :test #'equal)))
+    (elfeed-db-ensure)
     (with-elfeed-db-visit (entry feed)
       (puthash (elfeed-feed-id feed)
                (1+ (or (gethash (elfeed-feed-id feed) total-count) 0))
@@ -390,9 +435,92 @@ Implented the same way as `elfeed-search--update-list'."
                                 unread-count total-count misc-feeds)))
 
 ;;; View
+(defvar-local elfeed-summary--tree nil
+  "TODO")
+
+(defvar elfeed-summary-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map magit-section-mode-map)
+    (define-key map (kbd "RET") #'widget-button-press)
+    (define-key map (kbd "q") (lambda ()
+                                (interactive)
+                                (quit-window t)))
+    (when (fboundp #'evil-define-key*)
+      (evil-define-key* 'normal map
+        (kbd "<tab>") #'magit-section-toggle
+        "q" (lambda ()
+              (interactive)
+              (quit-window t))))
+    map)
+  "A keymap for `elfeed-summary-mode-map'.")
+
+(define-derived-mode elfeed-summary-mode magit-section "Elfeed Summary"
+  "TODO"
+  :group 'org-journal-tags
+  (setq-local buffer-read-only t))
+
+(defclass elfeed-summary-group-section (magit-section)
+  ((group :initform nil)))
+
+(defun elfeed-summary--render-feed (data)
+  (let* ((feed (alist-get 'feed data))
+         (title (or (plist-get (elfeed-feed-meta feed) :title)
+                    (elfeed-feed-title feed)
+                    (elfeed-feed-id feed))))
+    (insert (propertize title 'face (alist-get 'faces data)))
+    (insert "\n")))
+
+(defun elfeed-summary--render-search (data)
+  (let ((search-data (alist-get 'params data)))
+    (insert (propertize
+             (alist-get :title search-data)
+             'face
+             (alist-get :face search-data)))
+    (insert "\n")))
+
+(defun elfeed-summary--render-group (data)
+  (let ((group-data (alist-get 'params data)))
+    (magit-insert-section group (elfeed-summary-group-section)
+      (insert (propertize
+               (alist-get :title group-data)
+               'face
+               (alist-get :face group-data)))
+      (insert "\n")
+      (magit-insert-heading)
+      (oset group group data)
+      (cl-loop for child in (alist-get 'children data)
+               do (elfeed-summary--render-item child)))))
+
+(defun elfeed-summary--render-item (item)
+  (let ((data (cdr item)))
+    (pcase (car item)
+      ('group
+       (elfeed-summary--render-group data))
+      ('feed
+       (elfeed-summary--render-feed data))
+      ('search
+       (elfeed-summary--render-search data))
+      (_ (error "Unknown tree item: %s" (prin1-to-string (car item)))))))
 
 (defun elfeed-summary--render (tree)
-  "TODO")
+  "TODO"
+  (let ((inhibit-read-only t))
+    (erase-buffer)
+    (setq-local elfeed-summary--tree tree)
+    (unless (eq major-mode 'elfeed-summary-mode)
+      (elfeed-summary-mode))
+    (mapc #'elfeed-summary--render-item tree)))
+
+(defun elfeed-summary ()
+  "TODO"
+  (interactive)
+  (when-let ((buffer (get-buffer elfeed-summary-buffer)))
+    (kill-buffer buffer))
+  (let ((buffer (get-buffer-create elfeed-summary-buffer)))
+    (with-current-buffer buffer
+      (elfeed-summary--render
+       (elfeed-summary--get-data)))
+    (switch-to-buffer buffer)))
 
 (provide 'elfeed-summary)
 ;;; elfeed-summary.el ends here
