@@ -186,6 +186,11 @@ Available special forms:
   :group 'elfeed-summary
   :type 'integer)
 
+(defcustom elfeed-summary-default-filter "@6-months-ago "
+  "TODO"
+  :group 'elfeed-summary
+  :type 'integer)
+
 (defcustom elfeed-summary-unread-tag 'unread
   "Unread tag"
   :group 'elfeed-summary
@@ -481,16 +486,30 @@ Implented the same way as `elfeed-search--update-list'."
 (defvar elfeed-summary--total-padding 3
   "TODO")
 
+(defvar elfeed-summary--only-unread nil
+  "TODO")
+
+(defvar elfeed-summary--search-show-read nil
+  "TODO")
+
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "RET") #'widget-button-press)
+    (define-key map (kbd "M-RET") #'elfeed-summary--widget-press-show-read)
     (define-key map (kbd "q") (lambda ()
                                 (interactive)
                                 (quit-window t)))
+    (define-key map (kbd "r") #'elfeed-summary--refresh)
+    (define-key map (kbd "R") #'elfeed-update)
+    (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
     (when (fboundp #'evil-define-key*)
       (evil-define-key* 'normal map
         (kbd "<tab>") #'magit-section-toggle
+        "r" #'elfeed-summary--refresh
+        "R" #'elfeed-update
+        "u" #'elfeed-summary-toggle-only-unread
+        "M-RET" #'elfeed-summary--widget-press-show-read
         "q" (lambda ()
               (interactive)
               (quit-window t))))
@@ -504,6 +523,11 @@ Implented the same way as `elfeed-search--update-list'."
 
 (defclass elfeed-summary-group-section (magit-section)
   ((group :initform nil)))
+
+(defun elfeed-summary--widget-press-show-read (pos &optional event)
+  (interactive "@d")
+  (let ((elfeed-summary--search-show-read t))
+    (widget-button-press pos event)))
 
 (defun elfeed-summary--render-feed (data)
   (let* ((feed (alist-get 'feed data))
@@ -523,7 +547,23 @@ Implented the same way as `elfeed-search--update-list'."
                      'elfeed-summary-count-face-unread
                    'elfeed-summary-count-face))
                 (propertize title 'face (alist-get 'faces data)))))
-    (insert text)
+    (widget-create 'push-button
+                   :notify (lambda (widget &rest _)
+                             (elfeed)
+                             (elfeed-search-set-filter
+                              (concat
+                               elfeed-summary-default-filter
+                               (unless (or elfeed-summary--search-show-read
+                                           (widget-get widget :only-read))
+                                 "+unread ")
+                               "="
+                               (replace-regexp-in-string
+                                (rx "?" (* not-newline) eos)
+                                ""
+                                (elfeed-feed-url (widget-get widget :feed))))))
+                   :feed feed
+                   :only-read (= 0 (alist-get 'unread data))
+                   text)
     (insert "\n")))
 
 (defun elfeed-summary--render-search (data)
@@ -544,8 +584,8 @@ Implented the same way as `elfeed-search--update-list'."
                  (alist-get :title search-data)
                  'face
                  (alist-get 'faces data)))))
-    (insert text)
-    (insert "\n")))
+
+    (widget-insert "\n")))
 
 (defun elfeed-summary--render-group (data)
   (let ((group-data (alist-get 'params data)))
@@ -591,8 +631,27 @@ Implented the same way as `elfeed-search--update-list'."
                     (max max-total (alist-get 'total (cdr item)))))
   (list max-unread max-total))
 
+(defun elfeed-summary--leave-only-unread (tree)
+  (cl-loop for item in tree
+           for type = (car item)
+           if (and (eq type 'group)
+                   (let ((children (elfeed-summary--leave-only-unread
+                                    (alist-get 'children (cdr item)))))
+                     (setf (alist-get 'children (cdr item))
+                           children)
+                     (< 0 (length children))))
+           collect item
+           else if (and (or (eq type 'feed) (eq type 'search))
+                        (< 0 (alist-get 'unread (cdr item))))
+           collect item))
+
 (defun elfeed-summary--render (tree)
   "TODO"
+  (when elfeed-summary--only-unread
+    (setq tree (elfeed-summary--leave-only-unread tree)))
+  (setq-local widget-push-button-prefix "")
+  (setq-local widget-push-button-suffix "")
+  (setq-local elfeed-search-filter-active t)
   (let* ((inhibit-read-only t)
          (render-data (elfeed-summary--render-params tree))
          (elfeed-summary--unread-padding
@@ -603,19 +662,40 @@ Implented the same way as `elfeed-search--update-list'."
     (setq-local elfeed-summary--tree tree)
     (unless (eq major-mode 'elfeed-summary-mode)
       (elfeed-summary-mode))
+    (insert (elfeed-search--header) "\n\n")
     (mapc #'elfeed-summary--render-item tree)
-    (goto-char (point-min))))
+    (widget-setup)))
+
+(defun elfeed-summary--refresh ()
+  (interactive)
+  (when (eq (buffer-name) elfeed-summary-buffer)
+    (let ((inhibit-read-only t))
+      ;; XXX It's funny that the normal `save-excursion' doesn't work
+      ;; here and elfeed already has a workaround for this particular
+      ;; case
+      (elfeed-save-excursion
+        (erase-buffer)
+        (elfeed-summary--render
+         (elfeed-summary--get-data))))))
+
+(defun elfeed-summary-toggle-only-unread ()
+  (interactive)
+  (setq-local elfeed-summary--only-unread
+              (not elfeed-summary--only-unread))
+  (elfeed-summary--refresh))
 
 (defun elfeed-summary ()
   "TODO"
   (interactive)
+  (add-hook 'elfeed-update-init-hooks 'elfeed-summary--refresh)
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
     (kill-buffer buffer))
   (let ((buffer (get-buffer-create elfeed-summary-buffer)))
     (with-current-buffer buffer
       (elfeed-summary--render
        (elfeed-summary--get-data)))
-    (switch-to-buffer buffer)))
+    (switch-to-buffer buffer)
+    (goto-char (point-min))))
 
 (provide 'elfeed-summary)
 ;;; elfeed-summary.el ends here
