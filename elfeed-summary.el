@@ -259,7 +259,7 @@ This significantly slows down the `elfeed-update' command."
   :type 'boolean)
 
 (defcustom elfeed-summary-confirm-mark-read t
-  "Whether to confirm marking the feed as read"
+  "Whether to confirm marking the feed as read."
   :group 'elfeed-summary
   :type 'boolean)
 
@@ -519,9 +519,13 @@ PARAMS is a form as described in `elfeed-summary-settings'."
            append (elfeed-summary--get-feeds (cdr param))))
 
 (defun elfeed-summary--ensure ()
+  "Ensure that eleed database is loaded and feeds are set up."
   (elfeed-db-ensure)
   (when (and (not elfeed-feeds)
-             (fboundp #'rmh-elfeed-org-process))
+             (fboundp #'rmh-elfeed-org-process)
+             ;; To shut up the byte compiler
+             (boundp 'rmh-elfeed-org-files)
+             (boundp 'rmh-elfeed-org-tree-id))
     (rmh-elfeed-org-process rmh-elfeed-org-files rmh-elfeed-org-tree-id)))
 
 (defun elfeed-summary--get-data ()
@@ -596,7 +600,7 @@ The return value is a list of alists of the following elements:
   "Do not filter +unread when switching to the elfeed search buffer.")
 
 (defvar elfeed-summary--search-mark-read nil
-  "If t, mark the feed as read instead of switching to it")
+  "If t, mark the feed as read instead of switching to it.")
 
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
@@ -653,7 +657,7 @@ POS and EVENT are forwarded to `widget-button-press'."
 
 FEED is an instance of `elfeed-feed'."
   (when (or (not elfeed-summary-confirm-mark-read)
-            (y-or-n-p "Mark all entries in feed as read?"))
+            (y-or-n-p "Mark all entries in feed as read? "))
     (with-elfeed-db-visit (entry feed-2)
       (when (equal feed feed-2)
         (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
@@ -842,12 +846,56 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
     (unless (eq major-mode 'elfeed-summary-mode)
       (elfeed-summary-mode))
     (insert (elfeed-search--header) "\n\n")
-    (magit-insert-section section
+    (magit-insert-section _
       (magit-insert-heading)
       (unless tree
         (insert "No items found."))
       (mapc #'elfeed-summary--render-item tree))
     (widget-setup)))
+
+(defun elfeed-summary--get-folding-state (&optional section folding-state)
+  "Get the folding state of elfeed summary groups.
+
+SECTION is an instance of `magit-section', FOLDING-STATE is a hash
+map.  Both parameters are used for recursive descent.
+
+If SECTION has the `group' slot, it is presumed to hold an instance of
+`<tree-group-params>' as described in `elfeed-summary--get-data'.  The
+resulting hash map will have `<group-params>' as keys and values of
+the corresponding `hidden' slots as values."
+  (unless section
+    (setq section magit-root-section))
+  (unless folding-state
+    (setq folding-state (make-hash-table :test #'equal)))
+  (when (and (slot-exists-p section 'group)
+             (slot-boundp section 'group))
+    (puthash (alist-get 'params (oref section group))
+             (oref section hidden)
+             folding-state))
+  (cl-loop for child in (oref section children)
+           do (elfeed-summary--get-folding-state child folding-state))
+  folding-state)
+
+(defun elfeed-summary--restore-folding-state (folding-state &optional section)
+  "Restore the folding state of elfeed summary groups.
+
+FOLDING-STATE is a hash map as returned by
+`elfeed-summary--get-folding-state'.
+
+SECTION is an instance of `magit-section', used for recursive
+descent."
+  (unless section
+    (setq section magit-root-section))
+  (when (and (slot-exists-p section 'group)
+             (slot-boundp section 'group)
+             (not (eq (gethash (alist-get 'params (oref section group) 'null)
+                               folding-state)
+                      'null)))
+    (if (gethash (alist-get 'params (oref section group)) folding-state)
+        (magit-section-hide section)
+      (magit-section-show section)))
+  (cl-loop for child in (oref section children)
+           do (elfeed-summary--restore-folding-state folding-state child)))
 
 (defun elfeed-summary--refresh ()
   "Refresh the elfeed summary tree."
@@ -857,11 +905,14 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
     ;; work.  And it is also necessary to preserve the folding state.
     (let ((inhibit-read-only t)
           (line (line-number-at-pos))
-          (window-start (window-start)))
+          (window-start (window-start))
+          (folding-state (elfeed-summary--get-folding-state)))
       (erase-buffer)
       (elfeed-summary--render
        (elfeed-summary--get-data))
-      (goto-line line)
+      (elfeed-summary--restore-folding-state folding-state)
+      (goto-char (point-min))
+      (forward-line (1- line))
       (set-window-start (selected-window) window-start))))
 
 (defun elfeed-summary-toggle-only-unread ()
