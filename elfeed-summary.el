@@ -247,6 +247,13 @@ Receives two instances of `elfeed-feed'."
   :group 'elfeed-summary
   :type 'function)
 
+(defcustom elfeed-summary-refresh-on-each-update nil
+  "Whether to refresh the elfeed summary buffer after each update.
+
+This significantly slows down the `elfeed-update' command."
+  :group 'elfeed-summary
+  :type 'boolean)
+
 (defconst elfeed-summary-buffer "*elfeed-summary*"
   "Elfeed summary buffer name.")
 
@@ -264,6 +271,7 @@ Receives two instances of `elfeed-feed'."
   '((t (:inherit elfeed-search-unread-title-face)))
   "Face for the number of entries of an unread feed or search."
   :group 'elfeed-summary)
+
 
 ;;; Logic
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
@@ -531,6 +539,7 @@ The return value is a list of alists of the following elements:
 - `faces' - list of faces for the search entry.
 - `unread' - number of unread entries in the search results.
 - `total' - total number of entries in the search results."
+  (elfeed-db-ensure)
   (let* ((feeds (elfeed-summary--extract-feeds
                  elfeed-summary-settings))
          (all-feeds (mapcar #'car elfeed-feeds))
@@ -541,7 +550,6 @@ The return value is a list of alists of the following elements:
                        (mapcar #'elfeed-db-get-feed)))
          (unread-count (make-hash-table :test #'equal))
          (total-count (make-hash-table :test #'equal)))
-    (elfeed-db-ensure)
     (with-elfeed-db-visit (entry feed)
       (puthash (elfeed-feed-id feed)
                (1+ (or (gethash (elfeed-feed-id feed) total-count) 0))
@@ -804,13 +812,25 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
               (not elfeed-summary--only-unread))
   (elfeed-summary--refresh))
 
+(defun elfeed-summary--on-feed-update (&rest _)
+  "Message elfeed search header if the buffer is elfeed summary."
+  (when elfeed-summary-refresh-on-each-update
+    (elfeed-summary--refresh-if-exists)))
+
+(defun elfeed-summary--refresh-if-exists ()
+  "Refresh the elfeed summary buffer if it exists."
+  (when-let (buffer (get-buffer elfeed-summary-buffer))
+    (with-current-buffer buffer
+      (elfeed-summary--refresh))))
+
 (defun elfeed-summary ()
   "Display a feed summary for elfeed.
 
 The buffer displays a list of feeds, as set up by the
 `elfeed-summary-settings' variable."
   (interactive)
-  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh)
+  (add-hook 'elfeed-update-hooks #'elfeed-summary--on-feed-update)
+  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh-if-exists)
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
     (kill-buffer buffer))
   (let ((buffer (get-buffer-create elfeed-summary-buffer)))
