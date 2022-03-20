@@ -254,6 +254,11 @@ This significantly slows down the `elfeed-update' command."
   :group 'elfeed-summary
   :type 'boolean)
 
+(defcustom elfeed-summary-confirm-mark-read t
+  "Whether to confirm marking the feed as read"
+  :group 'elfeed-summary
+  :type 'boolean)
+
 (defconst elfeed-summary-buffer "*elfeed-summary*"
   "Elfeed summary buffer name.")
 
@@ -581,6 +586,9 @@ The return value is a list of alists of the following elements:
 (defvar elfeed-summary--search-show-read nil
   "Do not filter +unread when switching to the elfeed search buffer.")
 
+(defvar elfeed-summary--search-mark-read nil
+  "If t, mark the feed as read instead of switching to it")
+
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
@@ -592,12 +600,14 @@ The return value is a list of alists of the following elements:
     (define-key map (kbd "r") #'elfeed-summary--refresh)
     (define-key map (kbd "R") #'elfeed-update)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
+    (define-key map (kbd "U") #'elfeed-summary--widget-press-mark-read)
     (when (fboundp #'evil-define-key*)
       (evil-define-key* 'normal map
         (kbd "<tab>") #'magit-section-toggle
         "r" #'elfeed-summary--refresh
         "R" #'elfeed-update
         "u" #'elfeed-summary-toggle-only-unread
+        "U" #'elfeed-summary--widget-press-mark-read
         "M-RET" #'elfeed-summary--widget-press-show-read
         "q" (lambda ()
               (interactive)
@@ -621,6 +631,56 @@ POS and EVENT are forwarded to `widget-button-press'."
   (let ((elfeed-summary--search-show-read t))
     (widget-button-press pos event)))
 
+(defun elfeed-summary--widget-press-mark-read (pos &optional event)
+  "Press a button with `elfeed-summary--search-mark-read' set to t.
+
+POS and EVENT are forwarded to `widget-button-press'."
+  (interactive "@d")
+  (let ((elfeed-summary--search-mark-read t))
+    (widget-button-press pos event)))
+
+(defun elfeed-summary--mark-read (feed)
+  "Mark all items in the FEED as read.
+
+FEED is an instance of `elfeed-feed'."
+  (when (or (not elfeed-summary-confirm-mark-read)
+            (y-or-n-p "Mark all entries in feed as read?"))
+    (with-elfeed-db-visit (entry feed-2)
+      (when (equal feed feed-2)
+        (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
+          (setf (elfeed-entry-tags entry)
+                (seq-filter (lambda (tag) (not (eq elfeed-summary-unread-tag tag)))
+                            (elfeed-entry-tags entry))))))
+    (elfeed-summary--refresh)))
+
+(defun elfeed-summary--goto-feed (feed show-read)
+  "Open the FEED in a elfeed search buffer.
+
+FEED is an instance `elfeed-feed'.  If SHOW-READ is t, also show read
+items."
+  (elfeed)
+  (elfeed-search-set-filter
+   (concat
+    elfeed-summary-default-filter
+    (unless (or elfeed-summary--search-show-read
+                show-read)
+      "+unread ")
+    "="
+    (replace-regexp-in-string
+     (rx "?" (* not-newline) eos)
+     ""
+     (elfeed-feed-url feed)))))
+
+(defun elfeed-summary--search-feed-notify (widget &rest _)
+  "A function to run in `:notify' in a feed widget button.
+
+WIDGET is an instance of the pressed widget."
+  (cond
+   (elfeed-summary--search-mark-read
+    (elfeed-summary--mark-read (widget-get widget :feed)))
+   (_ (elfeed-summary--goto-feed
+       (widget-get widget :feed) (widget-get widget :only-read)))))
+
 (defun elfeed-summary--render-feed (data)
   "Render a feed item for the elfeed summary buffer.
 
@@ -643,19 +703,7 @@ DATA is a `<feed-group-params>' form as described in
                          'elfeed-summary-count-face))
                 (propertize title 'face (alist-get 'faces data)))))
     (widget-create 'push-button
-                   :notify (lambda (widget &rest _)
-                             (elfeed)
-                             (elfeed-search-set-filter
-                              (concat
-                               elfeed-summary-default-filter
-                               (unless (or elfeed-summary--search-show-read
-                                           (widget-get widget :only-read))
-                                 "+unread ")
-                               "="
-                               (replace-regexp-in-string
-                                (rx "?" (* not-newline) eos)
-                                ""
-                                (elfeed-feed-url (widget-get widget :feed))))))
+                   :notify #'elfeed-summary--search-feed-notify
                    :feed feed
                    :only-read (= 0 (alist-get 'unread data))
                    text)
@@ -796,14 +844,16 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
   "Refresh the elfeed summary tree."
   (interactive)
   (when (equal (buffer-name) elfeed-summary-buffer)
-    (let ((inhibit-read-only t))
-      ;; XXX It's funny that the normal `save-excursion' doesn't work
-      ;; here and elfeed already has a workaround for this particular
-      ;; case
-      (elfeed-save-excursion
-        (erase-buffer)
-        (elfeed-summary--render
-         (elfeed-summary--get-data))))))
+    ;; XXX this should've been `save-excursion, but somehow it doesn't
+    ;; work.  And it is also necessary to preserve the folding state.
+    (let ((inhibit-read-only t)
+          (line (line-number-at-pos))
+          (window-start (window-start)))
+      (erase-buffer)
+      (elfeed-summary--render
+       (elfeed-summary--get-data))
+      (goto-line line)
+      (set-window-start (selected-window) window-start))))
 
 (defun elfeed-summary-toggle-only-unread ()
   "Toggle displaying only items with unread elfeed entries."
