@@ -49,6 +49,10 @@
 ;; the code.
 (declare-function evil-define-key* "evil-core")
 
+;; XXX Compatibility with elfeed-org.  If this function is bound, then
+;; `elfeed-org' is available
+(declare-function rmh-elfeed-org-process "elfeed-org")
+
 (define-widget 'elfeed-summary-query 'lazy
   "Type widget for the query part of `elfeed-summary-settings'."
   :offset 4
@@ -514,6 +518,12 @@ PARAMS is a form as described in `elfeed-summary-settings'."
            else if (and (listp param) (eq (car param) 'query))
            append (elfeed-summary--get-feeds (cdr param))))
 
+(defun elfeed-summary--ensure ()
+  (elfeed-db-ensure)
+  (when (and (not elfeed-feeds)
+             (fboundp #'rmh-elfeed-org-process))
+    (rmh-elfeed-org-process rmh-elfeed-org-files rmh-elfeed-org-tree-id)))
+
 (defun elfeed-summary--get-data ()
   "Create the summary details tree from scratch.
 
@@ -544,7 +554,6 @@ The return value is a list of alists of the following elements:
 - `faces' - list of faces for the search entry.
 - `unread' - number of unread entries in the search results.
 - `total' - total number of entries in the search results."
-  (elfeed-db-ensure)
   (let* ((feeds (elfeed-summary--extract-feeds
                  elfeed-summary-settings))
          (all-feeds (mapcar #'car elfeed-feeds))
@@ -879,6 +888,7 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
 The buffer displays a list of feeds, as set up by the
 `elfeed-summary-settings' variable."
   (interactive)
+  (elfeed-summary--ensure)
   (add-hook 'elfeed-update-hooks #'elfeed-summary--on-feed-update)
   (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh-if-exists)
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
