@@ -605,23 +605,24 @@ The return value is a list of alists of the following elements:
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "RET") #'widget-button-press)
-    (define-key map (kbd "M-RET") #'elfeed-summary--widget-press-show-read)
+    (define-key map (kbd "RET") #'elfeed-summary--action)
+    (define-key map (kbd "M-RET") #'elfeed-summary--action-show-read)
     (define-key map (kbd "q") (lambda ()
                                 (interactive)
                                 (quit-window t)))
     (define-key map (kbd "r") #'elfeed-summary--refresh)
     (define-key map (kbd "R") #'elfeed-update)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
-    (define-key map (kbd "U") #'elfeed-summary--widget-press-mark-read)
+    (define-key map (kbd "U") #'elfeed-summary--action-mark-read)
     (when (fboundp #'evil-define-key*)
       (evil-define-key* 'normal map
         (kbd "<tab>") #'magit-section-toggle
         "r" #'elfeed-summary--refresh
         "R" #'elfeed-update
         "u" #'elfeed-summary-toggle-only-unread
-        "U" #'elfeed-summary--widget-press-mark-read
-        "M-RET" #'elfeed-summary--widget-press-show-read
+        (kbd "RET") #'elfeed-summary--action
+        "M-RET" #'elfeed-summary--action-show-read
+        "U" #'elfeed-summary--action-mark-read
         "q" (lambda ()
               (interactive)
               (quit-window t))))
@@ -690,9 +691,47 @@ items."
 WIDGET is an instance of the pressed widget."
   (cond
    (elfeed-summary--search-mark-read
-    (elfeed-summary--mark-read (widget-get widget :feed)))
+    (elfeed-summary--mark-read (list (widget-get widget :feed))))
    (_ (elfeed-summary--goto-feed
        (widget-get widget :feed) (widget-get widget :only-read)))))
+
+(defun elfeed-summary--group-extract-feeds (group)
+  "Extract feeds from GROUP.
+
+GROUP is a `<tree-group-params>' as described in
+`elfeed-summary--get-data'."
+  (cl-loop for child in (alist-get 'children group)
+           if (eq (car child) 'group)
+           append (elfeed-summary--group-extract-feeds child)
+           else if (eq (car child) 'feed)
+           collect (alist-get 'feed (cdr child))))
+
+(defun elfeed-summary--open-section (section)
+  "Open section under cursor.
+
+SECTION is an instance of `magit-section'."
+  (let ((feeds (elfeed-summary--group-extract-feeds
+                (oref section group))))
+    (unless feeds
+      (user-error "No feeds in section!"))
+    (cond
+     (elfeed-summary--search-mark-read
+      (elfeed-summary--mark-read feeds))
+     (t (progn
+          (elfeed)
+          (elfeed-search-set-filter
+           (concat
+            elfeed-summary-default-filter
+            (unless elfeed-summary--search-show-read
+              "+unread ")
+            (mapconcat
+             (lambda (feed)
+               (format "=%s" (replace-regexp-in-string
+                              (rx "?" (* not-newline) eos)
+                              ""
+                              (elfeed-feed-url feed))))
+             feeds
+             " "))))))))
 
 (defun elfeed-summary--render-feed (data)
   "Render a feed item for the elfeed summary buffer.
@@ -853,11 +892,11 @@ TREE is a form such as returned by `elfeed-summary--get-data'."
       (mapc #'elfeed-summary--render-item tree))
     (widget-setup)))
 
-(defun elfeed-summary--get-folding-state (&optional section folding-state)
+(defun elfeed-summary--get-folding-state (&optional section folding-state parent-hidden)
   "Get the folding state of elfeed summary groups.
 
 SECTION is an instance of `magit-section', FOLDING-STATE is a hash
-map.  Both parameters are used for recursive descent.
+map.  PARENT-HIDDEN shows whether the parent section is hidden.
 
 If SECTION has the `group' slot, it is presumed to hold an instance of
 `<tree-group-params>' as described in `elfeed-summary--get-data'.  The
@@ -870,10 +909,11 @@ the corresponding `hidden' slots as values."
   (when (and (slot-exists-p section 'group)
              (slot-boundp section 'group))
     (puthash (alist-get 'params (oref section group))
-             (oref section hidden)
+             (or parent-hidden (oref section hidden))
              folding-state))
   (cl-loop for child in (oref section children)
-           do (elfeed-summary--get-folding-state child folding-state))
+           do (elfeed-summary--get-folding-state
+               child folding-state (oref section hidden)))
   folding-state)
 
 (defun elfeed-summary--restore-folding-state (folding-state &optional section)
