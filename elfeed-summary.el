@@ -637,13 +637,23 @@ The return value is a list of alists of the following elements:
 (defclass elfeed-summary-group-section (magit-section)
   ((group :initform nil)))
 
-(defun elfeed-summary--widget-press-show-read (pos &optional event)
+(defun elfeed-summary--action (pos &optional event)
+  "Open thing at point in the elfeed summary buffer."
+  (interactive "@d")
+  (cond ((get-char-property pos 'button)
+         (widget-button-press pos event))
+        ((when-let (section (magit-current-section))
+           (and (slot-exists-p section 'group)
+                (slot-boundp section 'group)))
+         (elfeed-summary--open-section (magit-current-section)))))
+
+(defun elfeed-summary--action-show-read (pos &optional event)
   "Press a button with `elfeed-summary--search-show-read' set to t.
 
 POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
   (let ((elfeed-summary--search-show-read t))
-    (widget-button-press pos event)))
+    (elfeed-summary--action pos event)))
 
 (defun elfeed-summary--widget-press-mark-read (pos &optional event)
   "Press a button with `elfeed-summary--search-mark-read' set to t.
@@ -651,7 +661,7 @@ POS and EVENT are forwarded to `widget-button-press'."
 POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
   (let ((elfeed-summary--search-mark-read t))
-    (widget-button-press pos event)))
+    (elfeed-summary--action pos event)))
 
 (defun elfeed-summary--mark-read (feed)
   "Mark all items in the FEED as read.
@@ -692,7 +702,7 @@ WIDGET is an instance of the pressed widget."
   (cond
    (elfeed-summary--search-mark-read
     (elfeed-summary--mark-read (list (widget-get widget :feed))))
-   (_ (elfeed-summary--goto-feed
+   (t (elfeed-summary--goto-feed
        (widget-get widget :feed) (widget-get widget :only-read)))))
 
 (defun elfeed-summary--group-extract-feeds (group)
@@ -944,16 +954,15 @@ descent."
     ;; XXX this should've been `save-excursion, but somehow it doesn't
     ;; work.  And it is also necessary to preserve the folding state.
     (let ((inhibit-read-only t)
-          (line (line-number-at-pos))
+          (point (point))
           (window-start (window-start))
           (folding-state (elfeed-summary--get-folding-state)))
       (erase-buffer)
       (elfeed-summary--render
        (elfeed-summary--get-data))
       (elfeed-summary--restore-folding-state folding-state)
-      (goto-char (point-min))
-      (forward-line (1- line))
-      (set-window-start (selected-window) window-start))))
+      (set-window-point (get-buffer-window) point)
+      (set-window-start (get-buffer-window) window-start))))
 
 (defun elfeed-summary-toggle-only-unread ()
   "Toggle displaying only items with unread elfeed entries."
@@ -963,9 +972,15 @@ descent."
   (elfeed-summary--refresh))
 
 (defun elfeed-summary--on-feed-update (&rest _)
-  "Message elfeed search header if the buffer is elfeed summary."
-  (when elfeed-summary-refresh-on-each-update
-    (elfeed-summary--refresh-if-exists)))
+  "Message the status of the elfeed update.
+
+If `elfeed-summary-refresh-on-each-update' is t, also update the
+summary buffer."
+  (when-let (buffer (get-buffer elfeed-summary-buffer))
+    (message (elfeed-search--header))
+    (when elfeed-summary-refresh-on-each-update
+      (with-current-buffer buffer
+        (elfeed-summary--refresh)))))
 
 (defun elfeed-summary--refresh-if-exists ()
   "Refresh the elfeed summary buffer if it exists."
@@ -973,6 +988,31 @@ descent."
     (with-current-buffer buffer
       (elfeed-summary--refresh))))
 
+(defvar elfeed-summary--setup nil
+  "Whether elfeed summary was set up.")
+
+(defun elfeed-summary--elfeed-search-quit ()
+  "Quit the elfeed-search window.
+
+This is meant to override `elfeed-search-quit-window'.
+
+If elfeed summary buffer is available, refresh it, otherwise save the
+database.  Thus the summary buffer will reflect changes made in the
+search buffer."
+  (interactive)
+  (quit-window)
+  (if-let (buffer (get-buffer elfeed-summary-buffer))
+      (with-current-buffer buffer
+        (elfeed-summary--refresh))
+    (elfeed-db-save)))
+
+(defun elfeed-summary--setup ()
+  "Setup elfeed summary."
+  (add-hook 'elfeed-update-hooks #'elfeed-summary--on-feed-update)
+  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh-if-exists)
+  (advice-add #'elfeed-search-quit-window :override #'elfeed-summary--elfeed-search-quit))
+
+;;;###autoload
 (defun elfeed-summary ()
   "Display a feed summary for elfeed.
 
@@ -980,8 +1020,8 @@ The buffer displays a list of feeds, as set up by the
 `elfeed-summary-settings' variable."
   (interactive)
   (elfeed-summary--ensure)
-  (add-hook 'elfeed-update-hooks #'elfeed-summary--on-feed-update)
-  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh-if-exists)
+  (unless elfeed-summary--setup
+    (elfeed-summary--setup))
   (when-let ((buffer (get-buffer elfeed-summary-buffer)))
     (kill-buffer buffer))
   (let ((buffer (get-buffer-create elfeed-summary-buffer)))
