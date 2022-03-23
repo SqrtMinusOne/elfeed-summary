@@ -28,8 +28,8 @@
 ;; inspired by newsboat but tree-based.
 ;;
 ;; `elfeed-summary' pops up the summary buffer.  The buffer shows
-;; individual feeds and searches, combined into groups.  This is
-;; determined by the `elfeed-summary-settings' variable.
+;; individual feeds and searches, combined into groups.  The structure
+;; is determined by the `elfeed-summary-settings' variable.
 ;;
 ;; Also take a look at the package README at
 ;; <https://github.com/SqrtMinusOne/elfeed-summary> for more
@@ -54,7 +54,7 @@
 (declare-function rmh-elfeed-org-process "elfeed-org")
 
 (define-widget 'elfeed-summary-query 'lazy
-  "Type widget for the query part of `elfeed-summary-settings'."
+  "Type widget for the `<query-params>' form of `elfeed-summary-settings'."
   :offset 4
   :tag "Extract subset of elfeed feed list"
   :type '(choice (symbol :tag "One tag")
@@ -171,7 +171,8 @@ This is a list of these possible items:
   Match if any of the conditions 1, 2, ..., n match.
 - `(not <query>)'
 
-Feed tags for query are taken from `elfeed-feeds'.
+Feed tags for the query are determined by the `elfeed-feeds'
+variable.
 
 Query examples:
 - `(emacs lisp)'
@@ -189,31 +190,40 @@ Query examples:
 - `:tags' - list of tags to get the face of the entry.
 
 Available special forms:
-- `:misc' - print out feeds, not found by any query above."
+- `:misc' - print out feeds, not found by any query above.
+
+Also keep in mind that '(key . ((values))) is the same as '(key
+(values)).  This helps to shorten the form in many cases.
+
+Also, this variable is not validated by any means, so wrong values can
+produce somewhat cryptic errors."
   :group 'elfeed-summary
   :type 'elfeed-summary-setting-elements)
 
 (defcustom elfeed-summary-look-back (* 60 60 24 180)
-  "Timespan for which to count entries in the feed list.
+  "The date range for which to count entries in the feed list.
 
-The default value is 180 days, which means that only entries less than
-180 days old will be counted.
+The value is in seconds.  The default value is 180 days, which means
+that only entries less than 180 days old will be counted.
 
 This has to be set up for efficiency because the elfeed database is
-time-based, so this allows queirying only the most recent part of the
-database.
-
-The value is in seconds."
+time-based, so this allows querying only the most recent part of the
+database."
   :group 'elfeed-summary
   :type 'integer)
 
 (defcustom elfeed-summary-default-filter "@6-months-ago "
-  "Default filter when switching to search buffer for a feed."
+  "Default filter for `elfeed-search'.
+
+This has to end with space.  The unread tag will be added
+automatically."
   :group 'elfeed-summary
   :type 'integer)
 
 (defcustom elfeed-summary-unread-tag 'unread
-  "Tag with which to consider the entry unread."
+  "Tag that determines whether the entry is unread.
+
+Probably should be one of `elfeed-initial-tags'."
   :group 'elfeed-summary
   :type 'symbol)
 
@@ -247,14 +257,18 @@ greater than zero."
 (defcustom elfeed-summary-feed-sort-fn #'elfeed-summary--feed-sort-fn
   "Function to sort feeds in query.
 
-Receives two instances of `elfeed-feed'."
+Accepts two instances of `elfeed-feed'.
+
+The default implementation does the alphabetical case-insensitive
+ordering."
   :group 'elfeed-summary
   :type 'function)
 
 (defcustom elfeed-summary-refresh-on-each-update nil
   "Whether to refresh the elfeed summary buffer after each update.
 
-This significantly slows down the `elfeed-update' command."
+This significantly slows down the `elfeed-update' command when run
+from the summary buffer."
   :group 'elfeed-summary
   :type 'boolean)
 
@@ -484,7 +498,7 @@ PARAMS is a form as described in `elfeed-summary-settings'.
 UNREAD-COUNT and TOTAL-COUNT are hashmaps with feed ids as keys and
 corresponding numbers of entries as values.
 
-MISC-FEEDS is a list of feeds that was not used in PARAMS.
+MISC-FEEDS is a list of feeds that were not used in PARAMS.
 
 The resulting form is described in `elfeed-summary--get-data'."
   (cl-loop for param in params
@@ -546,7 +560,7 @@ The return value is a list of alists of the following elements:
 - `children' - list of children, same structure as the root form.
 
 `<feed-group-params>' is an alist with the following keys:
-- `feed' - instance of `elfeed-feed'.
+- `feed' - an instance of `elfeed-feed'.
 - `tags' - feed tags.
 - `faces' - list of faces for the search entry.
 - `unread' - number of unread entries in the feed.
@@ -638,7 +652,19 @@ The return value is a list of alists of the following elements:
   ((group :initform nil)))
 
 (defun elfeed-summary--action (pos &optional event)
-  "Open thing at point in the elfeed summary buffer."
+  "Run action at thing at the point in the elfeed summary buffer.
+
+If there's a widget at the point, pass the press event to the widget.
+That should result in the call to
+`elfeed-summary--search-feed-notify'.  Otherwise, if there's a group
+section, run the corresponding action for the group.
+
+The behavior of both `elfeed-summary--search-feed-notify' and
+`elfeed-summary--open-section' is modified by lexically scoped
+variables `elfeed-summary--search-show-read' and
+`elfeed-summary--search-mark-read'.
+
+POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
   (cond ((get-char-property pos 'button)
          (widget-button-press pos event))
@@ -648,7 +674,7 @@ The return value is a list of alists of the following elements:
          (elfeed-summary--open-section (magit-current-section)))))
 
 (defun elfeed-summary--action-show-read (pos &optional event)
-  "Press a button with `elfeed-summary--search-show-read' set to t.
+  "Run action with `elfeed-summary--search-show-read' set to t.
 
 POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
@@ -656,7 +682,7 @@ POS and EVENT are forwarded to `widget-button-press'."
     (elfeed-summary--action pos event)))
 
 (defun elfeed-summary--action-mark-read (pos &optional event)
-  "Press a button with `elfeed-summary--search-mark-read' set to t.
+  "Run action with `elfeed-summary--search-mark-read' set to t.
 
 POS and EVENT are forwarded to `widget-button-press'."
   (interactive "@d")
@@ -664,7 +690,7 @@ POS and EVENT are forwarded to `widget-button-press'."
     (elfeed-summary--action pos event)))
 
 (defun elfeed-summary--mark-read (feeds)
-  "Mark all the FEEDS items as read.
+  "Mark all the entries in FEEDS as read.
 
 FEEDS is a list of instances of `elfeed-feed'."
   (when (or (not elfeed-summary-confirm-mark-read)
@@ -688,7 +714,7 @@ items."
     elfeed-summary-default-filter
     (unless (or elfeed-summary--search-show-read
                 show-read)
-      "+unread ")
+      (format "+%s " elfeed-summary-unread-tag))
     "="
     (replace-regexp-in-string
      (rx "?" (* not-newline) eos)
@@ -733,7 +759,7 @@ SECTION is an instance of `magit-section'."
            (concat
             elfeed-summary-default-filter
             (unless elfeed-summary--search-show-read
-              "+unread ")
+              (format "+%s " elfeed-summary-unread-tag))
             (mapconcat
              (lambda (feed)
                (format "=%s" (replace-regexp-in-string
@@ -1016,8 +1042,13 @@ search buffer."
 (defun elfeed-summary ()
   "Display a feed summary for elfeed.
 
-The buffer displays a list of feeds, as set up by the
-`elfeed-summary-settings' variable."
+The feed summary is a tree of three basic items: groups, feeds and
+searches.  Groups also may contain other items.  The structure of the
+tree is determined by the `elfeed-summary-settings' variable.
+
+Take a look at `elfeed-summary-mode' for the list of available
+keybindings, and at the `elfeed-summary' group for the available
+options."
   (interactive)
   (elfeed-summary--ensure)
   (unless elfeed-summary--setup
