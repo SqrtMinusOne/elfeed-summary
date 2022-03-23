@@ -193,7 +193,7 @@ Available special forms:
 - `:misc' - print out feeds, not found by any query above.
 
 Also keep in mind that '(key . ((values))) is the same as '(key
-(values)).  This helps to shorten the form in many cases.
+\(values)).  This helps to shorten the form in many cases.
 
 Also, this variable is not validated by any means, so wrong values can
 produce somewhat cryptic errors."
@@ -745,7 +745,7 @@ GROUP is a `<tree-group-params>' as described in
 (defun elfeed-summary--open-section (section)
   "Open section under cursor.
 
-SECTION is an instance of `magit-section'."
+SECTION is an instance of `elfeed-summary-group-section'."
   (let ((feeds (elfeed-summary--group-extract-feeds
                 (oref section group))))
     (unless feeds
