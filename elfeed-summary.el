@@ -655,7 +655,7 @@ POS and EVENT are forwarded to `widget-button-press'."
   (let ((elfeed-summary--search-show-read t))
     (elfeed-summary--action pos event)))
 
-(defun elfeed-summary--widget-press-mark-read (pos &optional event)
+(defun elfeed-summary--action-mark-read (pos &optional event)
   "Press a button with `elfeed-summary--search-mark-read' set to t.
 
 POS and EVENT are forwarded to `widget-button-press'."
@@ -663,14 +663,14 @@ POS and EVENT are forwarded to `widget-button-press'."
   (let ((elfeed-summary--search-mark-read t))
     (elfeed-summary--action pos event)))
 
-(defun elfeed-summary--mark-read (feed)
-  "Mark all items in the FEED as read.
+(defun elfeed-summary--mark-read (feeds)
+  "Mark all the FEEDS items as read.
 
-FEED is an instance of `elfeed-feed'."
+FEEDS is a list of instances of `elfeed-feed'."
   (when (or (not elfeed-summary-confirm-mark-read)
             (y-or-n-p "Mark all entries in feed as read? "))
-    (with-elfeed-db-visit (entry feed-2)
-      (when (equal feed feed-2)
+    (with-elfeed-db-visit (entry feed)
+      (when (member feed feeds)
         (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
           (setf (elfeed-entry-tags entry)
                 (seq-filter (lambda (tag) (not (eq elfeed-summary-unread-tag tag)))
