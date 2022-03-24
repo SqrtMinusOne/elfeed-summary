@@ -150,11 +150,10 @@ This is a list of these possible items:
 
 `<group-params>' is an alist with the following keys:
 - `:title' (mandatory)
-- `:elements' (mandatory) - also a list of groups and queries
-  queries
-  in `:elements'.  E.g. `string-greaterp' for alphabetical order.
-- `:face' - group face.  The default face if `elfeed-summary-group-face'.
-- `:hide' - if non-nil, collapse by default.
+- `:elements' (mandatory) - elements of the group. The structure is
+  the same as in the root definition.
+- `:face' - group face.  The default face is `elfeed-summary-group-face'.
+- `:hide' - if non-nil, the group is collapsed by default.
 
 `<query-params>' can be:
 - A symbol of a tag.
@@ -183,7 +182,7 @@ Query examples:
   Return all feeds that have \"Emacs\" in their title and don't have
   the \"planets\" tag.
 
-`<search-params>` is an alist with the following keys:
+`<search-params>' is an alist with the following keys:
 - `:filter' (mandatory) filter string, as defined by
   `elfeed-search-set-filter'
 - `:title' (mandatory) title.

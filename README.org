@@ -1,1 +1,107 @@
 #+TITLE: elfeed-summary
+
+The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an eaiser "jumping point" for elfeed, so you can start a search for a feed or a group of feeds with a single action.
+
+Inspired by [[https://github.com/newsboat/newsboat][newsboat]].
+
+TODO screenshot
+
+* Installation
+As the package isn’t yet available anywhere but in this repository, you can clone the repository, add it to the load-path and require the package. My preferred way is =use-package= with =straight=:
+#+begin_src emacs-lisp
+(use-package elfeed-summary
+  :straight (:host github :repo "SqrtMinusOne/elfeed-summary"))
+#+end_src
+
+Of course, you have to have [[https://github.com/skeeto/elfeed][elfeed]] configured.
+* Usage
+Running =M-x elfeed-summary= opens up the summary buffer, as shown on the screenshot.
+
+The tree consists of:
+- feeds;
+- searches;
+- groups, that can include other groups, feeds, and searches.
+
+Available keybindings in the summary mode:
+
+| Keybinding | Description                                             |
+|------------+---------------------------------------------------------|
+| =RET=      | Open thing under the cursor (a feed, search or a group) |
+| =M-RET=    | Open thing under the cursor, but include unread items   |
+| =q=        | Quit the summary                                        |
+| =r=        | Refresh the summary buffer                              |
+| =R=        | Run update for elfeed feeds                             |
+| =u=        | Toggle showing only unread entries                      |
+| =U=        | Mark everything in the enrty under the cursor as read   |
+
+The standard keybindings from [[https://magit.vc/manual/magit.html#Sections][magit-section]] are also available, for instance =TAB= to toggle the visibility of the current group. [[https://github.com/emacs-evil/evil][evil-mode]] is also supported.
+
+* Configuration
+** Tree configuration
+The structure of the tree is determined by the =elfeed-summary-settings= variable.
+
+This is a list of these possible items:
+- Group =(group . <group-params>)=
+  Groups are used to group elements under collapsible sections.
+- Query =(query . <query-params>)=
+  Query extracts a subset of elfeed feeds based on the given criteria. Each found feed will be represented as a line.
+- Search =(search . <search-params>)=
+  Elfeed search, as defined by =elfeed-search-set-filter=.
+- a few special forms
+
+=<group-params>= is an alist with the following keys:
+- =:title= (mandatory)
+- =:elements= (mandatory) - elements of the group. The structure is the same as in the root definition.
+- =:face= - group face. The default face is =elfeed-summary-group-face=.
+- =:hide= - if non-nil, the group is collapsed by default.
+
+=<query-params>= can be:
+- A symbol of a tag.
+  A feed will be matched if it has that tag.
+- =:all=. Will match anything.
+- =(title . "string")= or =(title . <form>)=
+  Match feed title with =string-match-p=. <form> makes sense if you
+  want to pass something like =rx=.
+- =(author . "string")= or =(author . <form>)=
+- =(url . "string")= or =(url . <form>)=
+- =(and <q-1> <q-2> ... <q-n>)=
+  Match if all the conditions 1, 2, ..., n match.
+- =(or <q-1> <q-2> ... <q-n>)= or =(<q-1> <q-2> ... <q-n>)=
+  Match if any of the conditions 1, 2, ..., n match.
+- =(not <query>)=
+
+Feed tags for the query are determined by the =elfeed-feeds= variable.
+
+Query examples:
+- =(emacs lisp)=
+  Return all feeds that have either "emacs" or "lisp" tags.
+- =(and emacs lisp)=
+  Return all feeds that have both "emacs" and "lisp" tags.
+- =(and (title . "Emacs") (not planets))=
+  Return all feeds that have "Emacs" in their title and don't have
+  the "planets" tag.
+
+=<search-params>= is an alist with the following keys:
+- =:filter= (mandatory) filter string, as defined by
+  =elfeed-search-set-filter=
+- =:title= (mandatory) title.
+- =:tags= - list of tags to get the face of the entry.
+
+Available special forms:
+- =:misc= - print out feeds, not found by any query above.
+
+Also keep in mind that ='(key . ((values)))= is the same as ='(key (values))=. This helps to shorten the form in many cases.
+
+Also, this variable is not validated by any means, so wrong values can produce somewhat cryptic errors. Sorry about that.
+** Example
+TODO example
+** Faces
+As said above, individual group faces can be set with the =:face= attribute.
+
+Faces for feeds, however, by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list.
+
+This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
+
+As for searches, this is mostly the same, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
+** Other options
+Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
