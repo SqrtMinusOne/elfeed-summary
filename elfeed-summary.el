@@ -24,8 +24,10 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;; An extension for elfeed that provides a feed summary interface,
-;; inspired by newsboat but tree-based.
+;; The package provides a tree-based feed summary interface for
+;; elfeed. The tree can include individual feeds, searches, and
+;; groups. It mainly serves as an easier "jumping point" for elfeed,
+;; so searching a subset of the elfeed database is one action away.
 ;;
 ;; `elfeed-summary' pops up the summary buffer.  The buffer shows
 ;; individual feeds and searches, combined into groups.  The structure
@@ -1002,7 +1004,12 @@ descent."
 If `elfeed-summary-refresh-on-each-update' is t, also update the
 summary buffer."
   (when-let (buffer (get-buffer elfeed-summary-buffer))
-    (message (elfeed-search--header))
+    (message (if (> (elfeed-queue-count-total) 0)
+                 (let ((total (elfeed-queue-count-total))
+                       (in-process (elfeed-queue-count-active)))
+                   (format "%d jobs pending, %d active..."
+                           (- total in-process) in-process))
+               "Elfeed update completed"))
     (when elfeed-summary-refresh-on-each-update
       (with-current-buffer buffer
         (elfeed-summary--refresh)))))

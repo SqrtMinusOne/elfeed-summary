@@ -1,10 +1,10 @@
 #+TITLE: elfeed-summary
 
-The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an eaiser "jumping point" for elfeed, so you can start a search for a feed or a group of feeds with a single action.
+The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an easier "jumping point" for elfeed, so searching a subset of the elfeed database is one action away.
 
 Inspired by [[https://github.com/newsboat/newsboat][newsboat]].
 
-TODO screenshot
+[[./img/screenshot.png]]
 
 * Installation
 As the package isn’t yet available anywhere but in this repository, you can clone the repository, add it to the load-path and require the package. My preferred way is =use-package= with =straight=:
@@ -24,15 +24,15 @@ The tree consists of:
 
 Available keybindings in the summary mode:
 
-| Keybinding | Description                                             |
-|------------+---------------------------------------------------------|
-| =RET=      | Open thing under the cursor (a feed, search or a group) |
-| =M-RET=    | Open thing under the cursor, but include unread items   |
-| =q=        | Quit the summary                                        |
-| =r=        | Refresh the summary buffer                              |
-| =R=        | Run update for elfeed feeds                             |
-| =u=        | Toggle showing only unread entries                      |
-| =U=        | Mark everything in the enrty under the cursor as read   |
+| Keybinding | Description                                              |
+|------------+----------------------------------------------------------|
+| =RET=      | Open thing under the cursor (a feed, search, or a group) |
+| =M-RET=    | Open thing under the cursor, but include unread items    |
+| =q=        | Quit the summary                                         |
+| =r=        | Refresh the summary buffer                               |
+| =R=        | Run update for elfeed feeds                              |
+| =u=        | Toggle showing only unread entries                       |
+| =U=        | Mark everything in the entry under the cursor as read    |
 
 The standard keybindings from [[https://magit.vc/manual/magit.html#Sections][magit-section]] are also available, for instance =TAB= to toggle the visibility of the current group. [[https://github.com/emacs-evil/evil][evil-mode]] is also supported.
 
@@ -94,7 +94,68 @@ Also keep in mind that ='(key . ((values)))= is the same as ='(key (values))=. T
 
 Also, this variable is not validated by any means, so wrong values can produce somewhat cryptic errors. Sorry about that.
 ** Example
-TODO example
+Here is an excerpt from my configuration that was used to produce this screenshot:
+#+begin_src emacs-lisp
+(setq elfeed-summary-settings
+      '((group (:title . "GitHub")
+               (:elements
+                (query . (url . "SqrtMinusOne.private.atom"))
+                (group . ((:title . "Guix packages")
+                          (:elements
+                           (query . (and github guix_packages)))
+                          (:hide t)
+                          (:face magit-section-secondary-heading)))))
+        (group (:title . "Blogs [Software]")
+               (:elements
+                (query . software_blogs)))
+        (group (:title . "Blogs [People]")
+               (:elements
+                (query . (and blogs people (not emacs)))
+                (group (:title . "Emacs")
+                       (:face magit-section-secondary-heading)
+                       (:elements
+                        (query . (and blogs people emacs))))))
+        (group (:title . "Podcasts")
+               (:elements
+                (query . podcasts)))
+        (group (:title . "Videos")
+               (:elements
+                (group
+                 (:title . "Music")
+                 (:face magit-section-secondary-heading)
+                 (:elements
+                  (query . (and videos music))))
+                (group
+                 (:title . "Tech")
+                 (:face magit-section-secondary-heading)
+                 (:elements
+                  (query . (and videos tech))))
+                (group
+                 (:title . "History")
+                 (:face magit-section-secondary-heading)
+                 (:elements
+                  (query . (and videos history))))
+                ;; ...
+                ))
+        ;; ...
+        (group (:title . "Miscellaneous")
+               (:elements
+                (group
+                 (:title . "Searches")
+                 (:face magit-section-secondary-heading)
+                 (:elements
+                  (search
+                   (:filter . "@6-months-ago sqrtminusone")
+                   (:title . "About me"))
+                  (search
+                   (:filter . "+later")
+                   (:title . "Check later"))))
+                (group
+                 (:title . "Ungrouped")
+                 (:face magit-section-secondary-heading)
+                 (:elements :misc))))))
+#+end_src
+
 ** Faces
 As said above, individual group faces can be set with the =:face= attribute.
 
@@ -102,6 +163,6 @@ Faces for feeds, however, by default reuse [[https://github.com/skeeto/elfeed#cu
 
 This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
 
-As for searches, this is mostly the same, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
+Searches do mostly the same, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
