@@ -41,6 +41,7 @@
 (require 'cl-lib)
 (require 'elfeed)
 (require 'elfeed-db)
+(require 'elfeed-log)
 (require 'elfeed-search)
 (require 'magit-section)
 (require 'seq)
@@ -278,6 +279,12 @@ from the summary buffer."
   :group 'elfeed-summary
   :type 'boolean)
 
+(defcustom elfeed-summary-group-faces
+  '(magit-section-heading magit-section-secondary-heading)
+  "List of default group faces, one face per level"
+  :group 'elfeed-summary
+  :type '(repeat face))
+
 (defconst elfeed-summary-buffer "*elfeed-summary*"
   "Elfeed summary buffer name.")
 
@@ -505,8 +512,7 @@ The resulting form is described in `elfeed-summary--get-data'."
   (cl-loop for param in params
            if (and (listp param) (eq (car param) 'group))
            collect `(group . ((params . ,(cdr param))
-                              (face . ,(or (alist-get :face (cdr param))
-                                           'elfeed-summary-group-face))
+                              (face . ,(alist-get :face (cdr param)))
                               (children . ,(elfeed-summary--build-tree
                                             (cdr (assoc :elements (cdr param)))
                                             unread-count total-count misc-feeds))))
@@ -626,14 +632,14 @@ The return value is a list of alists of the following elements:
                                 (interactive)
                                 (quit-window t)))
     (define-key map (kbd "r") #'elfeed-summary--refresh)
-    (define-key map (kbd "R") #'elfeed-update)
+    (define-key map (kbd "R") #'elfeed-summary-update)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
     (define-key map (kbd "U") #'elfeed-summary--action-mark-read)
     (when (fboundp #'evil-define-key*)
       (evil-define-key* 'normal map
         (kbd "<tab>") #'magit-section-toggle
         "r" #'elfeed-summary--refresh
-        "R" #'elfeed-update
+        "R" #'elfeed-summary-update
         "u" #'elfeed-summary-toggle-only-unread
         (kbd "RET") #'elfeed-summary--action
         "M-RET" #'elfeed-summary--action-show-read
@@ -770,11 +776,12 @@ SECTION is an instance of `elfeed-summary-group-section'."
              feeds
              " "))))))))
 
-(defun elfeed-summary--render-feed (data)
+(defun elfeed-summary--render-feed (data _level)
   "Render a feed item for the elfeed summary buffer.
 
 DATA is a `<feed-group-params>' form as described in
-`elfeed-summary--get-data'."
+`elfeed-summary--get-data'.  LEVEL is the level of the recursive
+descent."
   (let* ((feed (alist-get 'feed data))
          (title (or (plist-get (elfeed-feed-meta feed) :title)
                     (elfeed-feed-title feed)
@@ -798,11 +805,12 @@ DATA is a `<feed-group-params>' form as described in
                    text)
     (insert "\n")))
 
-(defun elfeed-summary--render-search (data)
+(defun elfeed-summary--render-search (data _level)
   "Render a search item for the elfeed summary buffer.
 
 DATA is a `<search-group-params>' form as described in the
-`elfeed-summary--get-data'."
+`elfeed-summary--get-data'.  LEVEL is the level of the recursive
+descent."
   (let* ((search-data (alist-get 'params data))
          (text-format-string
           (concat "%" (number-to-string elfeed-summary--unread-padding)
@@ -829,36 +837,42 @@ DATA is a `<search-group-params>' form as described in the
                    text)
     (widget-insert "\n")))
 
-(defun elfeed-summary--render-group (data)
+(defun elfeed-summary--render-group (data level)
   "Render a group item for the elfeed summary buffer.
 
 DATA is a `<tree-group-params>' from as described in
-`elfeed-summary-get-data'."
+`elfeed-summary-get-data'.  LEVEL is the level of the recursive
+descent."
   (let ((group-data (alist-get 'params data)))
     (magit-insert-section group (elfeed-summary-group-section
                                  nil (alist-get :hide group-data))
       (insert (propertize
                (alist-get :title group-data)
                'face
-               (alist-get 'face data)))
+               (or (alist-get 'face data)
+                   (nth (% level (length elfeed-summary-group-faces))
+                        elfeed-summary-group-faces))))
       (insert "\n")
       (magit-insert-heading)
       (oset group group data)
       (cl-loop for child in (alist-get 'children data)
-               do (elfeed-summary--render-item child)))))
+               do (elfeed-summary--render-item child (1+ level))))))
 
-(defun elfeed-summary--render-item (item)
+(defun elfeed-summary--render-item (item &optional level)
   "Render one item for the elfeed summary buffer.
 
-ITEM is one alist as returned by `elfeed-summary--get-data'."
+ITEM is one alist as returned by `elfeed-summary--get-data'.  LEVEL is
+the level of the recursive descent."
+  (unless level
+    (setq level 0))
   (let ((data (cdr item)))
     (pcase (car item)
       ('group
-       (elfeed-summary--render-group data))
+       (elfeed-summary--render-group data level))
       ('feed
-       (elfeed-summary--render-feed data))
+       (elfeed-summary--render-feed data level))
       ('search
-       (elfeed-summary--render-search data))
+       (elfeed-summary--render-search data level))
       (_ (error "Unknown tree item: %s" (prin1-to-string (car item)))))))
 
 (defun elfeed-summary--render-params (tree &optional max-unread max-total)
@@ -1020,6 +1034,53 @@ summary buffer."
     (with-current-buffer buffer
       (elfeed-summary--refresh))))
 
+(defun elfeed-summary-update ()
+  "Update all the feeds in `elfeed-feeds' and the summary buffer."
+  (interactive)
+  (elfeed-log 'info "Elfeed update: %s"
+              (format-time-string "%B %e %Y %H:%M:%S %Z"))
+  ;; XXX Here's a remarkably dirty solution.  This command is meant to
+  ;; refresh the elfeed-summary buffer after all the feeds have been
+  ;; updated.  But elfeed doesn't seem to provide anything to hook
+  ;; into for that.
+  ;; There's `elfeed-update-hooks', which is run after an individual feed
+  ;; update, so it is possible to figure out when the last feed has
+  ;; been updated.  But it seems impossible to override this hook with
+  ;; lexical binding.
+  ;; Thus, this function pushes a closure to the hook and cleans it up
+  ;; afterwards.
+  (setq elfeed-update-hooks
+        (seq-filter (lambda (hook)
+                      (not (and (listp hook) (eq (car hook) 'closure))))
+                    elfeed-update-hooks))
+  (let* ((elfeed--inhibit-update-init-hooks t)
+         (remaining-feeds (elfeed-feed-list))
+         (elfeed-update-closure
+          (lambda (url)
+            (message (if (> (elfeed-queue-count-total) 0)
+                         (let ((total (elfeed-queue-count-total))
+                               (in-process (elfeed-queue-count-active)))
+                           (format "%d jobs pending, %d active..."
+                                   (- total in-process) in-process))
+                       "Elfeed update completed"))
+            (setq remaining-feeds
+                  (seq-remove
+                   (lambda (url-1)
+                     (string-equal url-1 url))
+                   remaining-feeds))
+            (when (seq-empty-p remaining-feeds)
+              (setq elfeed-update-hooks
+                    (seq-filter (lambda (hook)
+                                  (not (and (listp hook) (eq (car hook) 'closure))))
+                                elfeed-update-hooks)))
+            (when (or (seq-empty-p remaining-feeds)
+                      elfeed-summary-refresh-on-each-update)
+              (elfeed-summary--refresh-if-exists)))))
+    (add-hook 'elfeed-update-hooks elfeed-update-closure)
+    (mapc #'elfeed-update-feed (elfeed--shuffle (elfeed-feed-list)))
+    (run-hooks 'elfeed-update-init-hooks)
+    (elfeed-db-save)))
+
 (defvar elfeed-summary--setup nil
   "Whether elfeed summary was set up.")
 
@@ -1040,8 +1101,6 @@ search buffer."
 
 (defun elfeed-summary--setup ()
   "Setup elfeed summary."
-  (add-hook 'elfeed-update-hooks #'elfeed-summary--on-feed-update)
-  (add-hook 'elfeed-update-init-hooks #'elfeed-summary--refresh-if-exists)
   (advice-add #'elfeed-search-quit-window :override #'elfeed-summary--elfeed-search-quit))
 
 ;;;###autoload
