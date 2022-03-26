@@ -103,8 +103,7 @@ Here is an excerpt from my configuration that was used to produce this screensho
                 (group . ((:title . "Guix packages")
                           (:elements
                            (query . (and github guix_packages)))
-                          (:hide t)
-                          (:face magit-section-secondary-heading)))))
+                          (:hide t)))))
         (group (:title . "Blogs [Software]")
                (:elements
                 (query . software_blogs)))
@@ -112,7 +111,6 @@ Here is an excerpt from my configuration that was used to produce this screensho
                (:elements
                 (query . (and blogs people (not emacs)))
                 (group (:title . "Emacs")
-                       (:face magit-section-secondary-heading)
                        (:elements
                         (query . (and blogs people emacs))))))
         (group (:title . "Podcasts")
@@ -122,17 +120,14 @@ Here is an excerpt from my configuration that was used to produce this screensho
                (:elements
                 (group
                  (:title . "Music")
-                 (:face magit-section-secondary-heading)
                  (:elements
                   (query . (and videos music))))
                 (group
                  (:title . "Tech")
-                 (:face magit-section-secondary-heading)
                  (:elements
                   (query . (and videos tech))))
                 (group
                  (:title . "History")
-                 (:face magit-section-secondary-heading)
                  (:elements
                   (query . (and videos history))))
                 ;; ...
@@ -142,7 +137,6 @@ Here is an excerpt from my configuration that was used to produce this screensho
                (:elements
                 (group
                  (:title . "Searches")
-                 (:face magit-section-secondary-heading)
                  (:elements
                   (search
                    (:filter . "@6-months-ago sqrtminusone")
@@ -152,17 +146,14 @@ Here is an excerpt from my configuration that was used to produce this screensho
                    (:title . "Check later"))))
                 (group
                  (:title . "Ungrouped")
-                 (:face magit-section-secondary-heading)
                  (:elements :misc))))))
 #+end_src
 
 ** Faces
-As said above, individual group faces can be set with the =:face= attribute.
+Faces for groups by default use the =elfeed-summary-group-faces= variable, which serves as a list of faces for each level of the tree. Individual group faces can be overridden with the =:face= attribute.
 
-Faces for feeds, however, by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list.
+Faces for feeds by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list. This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
 
-This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
-
-Searches do mostly the same, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
+Searches are mostly the same as feeds, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
