@@ -281,7 +281,7 @@ from the summary buffer."
 
 (defcustom elfeed-summary-group-faces
   '(magit-section-heading magit-section-secondary-heading)
-  "List of default group faces, one face per level"
+  "List of default group faces, one face per level."
   :group 'elfeed-summary
   :type '(repeat face))
 
