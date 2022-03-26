@@ -157,3 +157,32 @@ Faces for feeds by default reuse [[https://github.com/skeeto/elfeed#custom-tag-f
 Searches are mostly the same as feeds, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
+* Ideas and alternatives
+The default interface of elfeed is just a list of all entries. Naturally, it gets hard to navigate when there are a lot of sources with varying frequencies of posts.
+
+Elfeed itself provides one solution, which is using [[https://github.com/skeeto/elfeed#bookmarks][bookmarks]] to save individual [[https://github.com/skeeto/elfeed#filter-syntax][searches]]. This can work, but it can be somewhat cumbersome.
+
+[[https://github.com/sp1ff/elfeed-score][elfeed-score]] is another solution, which introduces scoring rules for entries. Thus, with proper rules set, the most important entries should be on the top of the list. You can take a look at [[https://www.youtube.com/watch?v=rvWbUGx9U5E][this video by John Kitchin]] to see how this can work.
+
+However, I mostly had =elfeed-score= to group entries to sets with equal scores, and I then processed one such set or the other. This is why I decided this package is a better fit for my workflow.
+
+Another idea I used often before that is this function:
+#+begin_src emacs-lisp
+(defun my/elfeed-search-filter-source (entry)
+  "Filter elfeed search buffer by the feed under the cursor."
+  (interactive (list (elfeed-search-selected :ignore-region)))
+  (when (elfeed-entry-p entry)
+    (elfeed-search-set-filter
+     (concat
+      "@6-months-ago "
+      "+unread "
+      "="
+      (replace-regexp-in-string
+       (rx "?" (* not-newline) eos)
+       ""
+       (elfeed-feed-url (elfeed-entry-feed entry)))))))
+#+end_src
+
+I've bound it to =o=, so I would open =elfeed=, press =o=, and only see unread entries from a particular feed. Then I cleaned the filter and switched to the next feed. Once again, a tree with feeds is obviously a better tool for such a workflow.
+
+The last solution I want to mention is [[https://github.com/manojm321/elfeed-dashboard][elfeed-dashboard]], although I didn't test this one. It looks similar to this package but seems to require much more fine-tuning, for instance, it doesn't allow to list all the feeds with a certain tag in a group.
