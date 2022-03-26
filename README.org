@@ -1,6 +1,6 @@
 #+TITLE: elfeed-summary
 
-The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an easier "jumping point" for elfeed, so to make querying a subset of the elfeed database is one action away.
+The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an easier "jumping point" for elfeed, so to make querying a subset of the elfeed database one action away.
 
 Inspired by [[https://github.com/newsboat/newsboat][newsboat]].
 
