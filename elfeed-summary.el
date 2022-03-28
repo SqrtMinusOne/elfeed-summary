@@ -126,7 +126,7 @@
            (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
-  "Feed summary inteface for elfeed."
+  "Feed summary interface for elfeed."
   :group 'elfeed)
 
 (defcustom elfeed-summary-settings
@@ -540,7 +540,7 @@ PARAMS is a form as described in `elfeed-summary-settings'."
            append (elfeed-summary--get-feeds (cdr param))))
 
 (defun elfeed-summary--ensure ()
-  "Ensure that eleed database is loaded and feeds are set up."
+  "Ensure that elfeed database is loaded and feeds are set up."
   (elfeed-db-ensure)
   (when (and (not elfeed-feeds)
              (fboundp #'rmh-elfeed-org-process)
@@ -760,21 +760,20 @@ SECTION is an instance of `elfeed-summary-group-section'."
     (cond
      (elfeed-summary--search-mark-read
       (elfeed-summary--mark-read feeds))
-     (t (progn
-          (elfeed)
-          (elfeed-search-set-filter
-           (concat
-            elfeed-summary-default-filter
-            (unless elfeed-summary--search-show-read
-              (format "+%s " elfeed-summary-unread-tag))
-            (mapconcat
-             (lambda (feed)
-               (format "=%s" (replace-regexp-in-string
-                              (rx "?" (* not-newline) eos)
-                              ""
-                              (elfeed-feed-url feed))))
-             feeds
-             " "))))))))
+     (t (elfeed)
+        (elfeed-search-set-filter
+         (concat
+          elfeed-summary-default-filter
+          (unless elfeed-summary--search-show-read
+            (format "+%s " elfeed-summary-unread-tag))
+          (mapconcat
+           (lambda (feed)
+             (format "=%s" (replace-regexp-in-string
+                            (rx "?" (* not-newline) eos)
+                            ""
+                            (elfeed-feed-url feed))))
+           feeds
+           " ")))))))
 
 (defun elfeed-summary--render-feed (data _level)
   "Render a feed item for the elfeed summary buffer.
@@ -880,7 +879,7 @@ the level of the recursive descent."
 
 TREE is a form such as returned by `elfeed-summary--get-data'.
 
-MAX-UNREAD and MAX-TOTAL are paramenters for the recursive descent."
+MAX-UNREAD and MAX-TOTAL are parameters for the recursive descent."
   (unless max-unread
     (setq max-unread 0
           max-total 0))
