@@ -1,5 +1,7 @@
 #+TITLE: elfeed-summary
 
+[[https://melpa.org/#/elfeed-summary][file:https://melpa.org/packages/elfeed-summary-badge.svg]]
+
 The package provides a tree-based feed summary interface for [[https://github.com/skeeto/elfeed][elfeed]]. The tree can include individual feeds, [[https://github.com/skeeto/elfeed#filter-syntax][searches]], and groups. It mainly serves as an easier "jumping point" for elfeed, so to make querying a subset of the elfeed database one action away.
 
 Inspired by [[https://github.com/newsboat/newsboat][newsboat]].
@@ -7,10 +9,10 @@ Inspired by [[https://github.com/newsboat/newsboat][newsboat]].
 [[./img/screenshot.png]]
 
 * Installation
-As the package isn’t yet available anywhere but in this repository, you can clone the repository, add it to the load-path and require the package. My preferred way is =use-package= with =straight=:
+The package is available on MELPA, so install it however you normally install packages. My preferred way is =use-package= with =straight=:
 #+begin_src emacs-lisp
 (use-package elfeed-summary
-  :straight (:host github :repo "SqrtMinusOne/elfeed-summary"))
+  :straight t)
 #+end_src
 
 Of course, you have to have [[https://github.com/skeeto/elfeed][elfeed]] configured.
