@@ -628,9 +628,7 @@ The return value is a list of alists of the following elements:
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "RET") #'elfeed-summary--action)
     (define-key map (kbd "M-RET") #'elfeed-summary--action-show-read)
-    (define-key map (kbd "q") (lambda ()
-                                (interactive)
-                                (quit-window t)))
+    (define-key map (kbd "q") #'elfeed-summary-quit-window)
     (define-key map (kbd "r") #'elfeed-summary--refresh)
     (define-key map (kbd "R") #'elfeed-summary-update)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
@@ -644,9 +642,7 @@ The return value is a list of alists of the following elements:
         (kbd "RET") #'elfeed-summary--action
         "M-RET" #'elfeed-summary--action-show-read
         "U" #'elfeed-summary--action-mark-read
-        "q" (lambda ()
-              (interactive)
-              (quit-window t))))
+        "q" #'elfeed-summary-quit-window))
     map)
   "A keymap for `elfeed-summary-mode-map'.")
 
@@ -1097,6 +1093,12 @@ search buffer."
       (with-current-buffer buffer
         (elfeed-summary--refresh))
     (elfeed-db-save)))
+
+(defun elfeed-summary-quit-window ()
+  "Save the database, then `quit-window'."
+  (interactive)
+  (elfeed-db-save)
+  (quit-window t))
 
 (defun elfeed-summary--setup ()
   "Setup elfeed summary."
