@@ -157,6 +157,15 @@ Faces for groups by default use the =elfeed-summary-group-faces= variable, which
 Faces for feeds by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list. This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
 
 Searches are mostly the same as feeds, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
+** Opening =elfeed-search= in other window
+If you set:
+#+begin_src emacs-lisp
+(setq elfeed-summary-other-window t)
+#+end_src
+
+Then =RET= and =M-RET= in the =elfeed-summary= buffer will open the search buffer in other window.
+
+=elfeed-summary-width= regulates the width of the remaining summary window in this case. It is useful because the data in the search buffer is generally wider than in the summary buffer. The variable can also be set to =nil= to disable this behavior.
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
 * Ideas and alternatives

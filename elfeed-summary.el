@@ -285,6 +285,18 @@ from the summary buffer."
   :group 'elfeed-summary
   :type '(repeat face))
 
+(defcustom elfeed-summary-other-window nil
+  "Whether to open the elfeed-search buffer in other window."
+  :group 'elfeed-summary
+  :type 'boolean)
+
+(defcustom elfeed-summary-width 55
+  "Width of the summary buffer when opening the search buffer.
+
+Useful only if `elfeed-summary-other-window' is set to t."
+  :group 'elfeed-summary
+  :type 'integer)
+
 (defconst elfeed-summary-buffer "*elfeed-summary*"
   "Elfeed summary buffer name.")
 
@@ -649,7 +661,8 @@ The return value is a list of alists of the following elements:
 (define-derived-mode elfeed-summary-mode magit-section "Elfeed Summary"
   "A major mode to display the elfeed summary data."
   :group 'org-journal-tags
-  (setq-local buffer-read-only t))
+  (setq-local buffer-read-only t)
+  (setq-local truncate-lines t))
 
 (defclass elfeed-summary-group-section (magit-section)
   ((group :initform nil)))
@@ -706,12 +719,28 @@ FEEDS is a list of instances of `elfeed-feed'."
                             (elfeed-entry-tags entry))))))
     (elfeed-summary--refresh)))
 
+(defun elfeed-summary--open-elfeed ()
+  "Open elfeed.
+
+If `elfeed-summary-other-window' is t, open elfeed in other window."
+  (if elfeed-summary-other-window
+      (let ((window (selected-window)))
+        (switch-to-buffer-other-window (elfeed-search-buffer))
+        (when elfeed-summary-width
+          (with-selected-window window
+            (enlarge-window (- elfeed-summary-width
+                               (window-width))
+                            t))))
+    (switch-to-buffer (elfeed-search-buffer)))
+  (unless (eq major-mode 'elfeed-search-mode)
+    (elfeed-search-mode)))
+
 (defun elfeed-summary--goto-feed (feed show-read)
   "Open the FEED in a elfeed search buffer.
 
 FEED is an instance `elfeed-feed'.  If SHOW-READ is t, also show read
 items."
-  (elfeed)
+  (elfeed-summary--open-elfeed)
   (elfeed-search-set-filter
    (concat
     elfeed-summary-default-filter
@@ -756,7 +785,7 @@ SECTION is an instance of `elfeed-summary-group-section'."
     (cond
      (elfeed-summary--search-mark-read
       (elfeed-summary--mark-read feeds))
-     (t (elfeed)
+     (t (elfeed-summary--open-elfeed)
         (elfeed-search-set-filter
          (concat
           elfeed-summary-default-filter
@@ -825,7 +854,7 @@ descent."
                  (alist-get 'faces data)))))
     (widget-create 'push-button
                    :notify (lambda (widget &rest _)
-                             (elfeed)
+                             (elfeed-summary--open-elfeed)
                              (elfeed-search-set-filter
                               (widget-get widget :filter)))
                    :filter (alist-get :filter search-data)
