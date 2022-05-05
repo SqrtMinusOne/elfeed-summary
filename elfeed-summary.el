@@ -748,7 +748,7 @@ items."
                 show-read)
       (format "+%s " elfeed-summary-unread-tag))
     "="
-     (rx-to-string (elfeed-feed-url feed) t)
+     (rx-to-string (elfeed-feed-id feed) t)
     )))
 
 (defun elfeed-summary--search-feed-notify (widget &rest _)
