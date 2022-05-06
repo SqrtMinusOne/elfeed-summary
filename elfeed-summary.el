@@ -748,10 +748,8 @@ items."
                 show-read)
       (format "+%s " elfeed-summary-unread-tag))
     "="
-    (replace-regexp-in-string
-     (rx "?" (* not-newline) eos)
-     ""
-     (elfeed-feed-id feed)))))
+     (rx-to-string (elfeed-feed-id feed) t)
+    )))
 
 (defun elfeed-summary--search-feed-notify (widget &rest _)
   "A function to run in `:notify' in a feed widget button.
