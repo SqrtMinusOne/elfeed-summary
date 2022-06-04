@@ -554,9 +554,8 @@ PARAMS is a form as described in `elfeed-summary-settings'."
 (defun elfeed-summary--ensure ()
   "Ensure that elfeed database is loaded and feeds are set up."
   (elfeed-db-ensure)
-  (when (and (not elfeed-feeds)
-             (fboundp #'rmh-elfeed-org-process)
-             ;; To shut up the byte compiler
+  (when (and (fboundp #'rmh-elfeed-org-process)
+             ;; To silence the byte compiler
              (boundp 'rmh-elfeed-org-files)
              (boundp 'rmh-elfeed-org-tree-id))
     (rmh-elfeed-org-process rmh-elfeed-org-files rmh-elfeed-org-tree-id)))
