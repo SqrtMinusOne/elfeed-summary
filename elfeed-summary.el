@@ -747,8 +747,7 @@ items."
                 show-read)
       (format "+%s " elfeed-summary-unread-tag))
     "="
-     (rx-to-string (elfeed-feed-id feed) t)
-    )))
+    (rx-to-string (elfeed-feed-id feed) t))))
 
 (defun elfeed-summary--search-feed-notify (widget &rest _)
   "A function to run in `:notify' in a feed widget button.
@@ -790,10 +789,7 @@ SECTION is an instance of `elfeed-summary-group-section'."
             (format "+%s " elfeed-summary-unread-tag))
           (mapconcat
            (lambda (feed)
-             (format "=%s" (replace-regexp-in-string
-                            (rx "?" (* not-newline) eos)
-                            ""
-                            (elfeed-feed-id feed))))
+             (format "=%s" (rx-to-string (elfeed-feed-id feed) t)))
            feeds
            " ")))))))
 
