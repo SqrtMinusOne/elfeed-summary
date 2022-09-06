@@ -608,7 +608,7 @@ The return value is a list of alists of the following elements:
         (puthash (elfeed-feed-id feed)
                  (1+ (or (gethash (elfeed-feed-id feed) unread-count) 0))
                  unread-count))
-      (when (> (- (time-convert nil 'integer)
+      (when (> (- (float-time)
                   elfeed-summary-look-back)
                (elfeed-entry-date entry))
         (elfeed-db-return)))
