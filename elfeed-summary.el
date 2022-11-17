@@ -56,6 +56,10 @@
 ;; `elfeed-org' is available
 (declare-function rmh-elfeed-org-process "elfeed-org")
 
+;; XXX Compatibility with elfeed-autotag.  If this function is bound, then
+;; `elfeed-autotag' is available
+(declare-function elfeed-autotag-process "elfeed-autoag")
+
 (define-widget 'elfeed-summary-query 'lazy
   "Type widget for the `<query-params>' form of `elfeed-summary-settings'."
   :offset 4
@@ -558,7 +562,12 @@ PARAMS is a form as described in `elfeed-summary-settings'."
              ;; To silence the byte compiler
              (boundp 'rmh-elfeed-org-files)
              (boundp 'rmh-elfeed-org-tree-id))
-    (rmh-elfeed-org-process rmh-elfeed-org-files rmh-elfeed-org-tree-id)))
+    (rmh-elfeed-org-process rmh-elfeed-org-files rmh-elfeed-org-tree-id))
+  (when (and (fboundp #'elfeed-autotag-process)
+             ;; To silence the byte compiler
+             (boundp 'elfeed-autotag-files)
+             (boundp 'elfeed-autotag-tree-id))
+    (elfeed-autotag-process elfeed-autotag-files elfeed-autotag-tree-id)))
 
 (defun elfeed-summary--get-data ()
   "Create the summary details tree from scratch.
@@ -844,13 +853,19 @@ descent."
                 (propertize
                  (alist-get :title search-data)
                  'face
-                 (alist-get 'faces data)))))
+                 (alist-get 'faces data))))
+         (filter-wdefault (concat (alist-get :filter search-data) " "
+                                  elfeed-summary-default-filter))
+         (filter-wdefault (if elfeed-summary--only-unread
+                              (concat filter-wdefault
+                                      (format "+%s " elfeed-summary-unread-tag))
+                            filter-wdefault)))
     (widget-create 'push-button
                    :notify (lambda (widget &rest _)
                              (elfeed-summary--open-elfeed)
                              (elfeed-search-set-filter
-                              (widget-get widget :filter)))
-                   :filter (alist-get :filter search-data)
+                              filter-wdefault))
+                   :filter filter-wdefault
                    text)
     (widget-insert "\n")))
 
