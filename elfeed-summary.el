@@ -4,7 +4,7 @@
 
 ;; Author: Korytov Pavel <thexcloud@gmail.com>
 ;; Maintainer: Korytov Pavel <thexcloud@gmail.com>
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "27.1") (magit-section "3.3.0") (elfeed "3.4.1"))
 ;; Homepage: https://github.com/SqrtMinusOne/elfeed-summary.el
 
@@ -25,8 +25,8 @@
 
 ;;; Commentary:
 ;; The package provides a tree-based feed summary interface for
-;; elfeed. The tree can include individual feeds, searches, and
-;; groups. It mainly serves as an easier "jumping point" for elfeed,
+;; elfeed.  The tree can include individual feeds, searches, and
+;; groups.  It mainly serves as an easier "jumping point" for elfeed,
 ;; so searching a subset of the elfeed database is one action away.
 ;;
 ;; `elfeed-summary' pops up the summary buffer.  The buffer shows
@@ -122,7 +122,9 @@
                                 (string :tag "Filter title"))
                           (cons :tag "Tags"
                                 (const :tag "Tags" :tags)
-                                (repeat symbol)))))
+                                (repeat symbol))
+                          (cons (cons :tag "Add the default filter string" :add-default)
+                                (boolean :tag "Add the default filter string")))))
            (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
@@ -153,7 +155,7 @@ This is a list of these possible items:
 
 `<group-params>' is an alist with the following keys:
 - `:title' (mandatory)
-- `:elements' (mandatory) - elements of the group. The structure is
+- `:elements' (mandatory) - elements of the group.  The structure is
   the same as in the root definition.
 - `:face' - group face.  The default face is `elfeed-summary-group-face'.
 - `:hide' - if non-nil, the group is collapsed by default.
@@ -190,6 +192,8 @@ Query examples:
   `elfeed-search-set-filter'
 - `:title' (mandatory) title.
 - `:tags' - list of tags to get the face of the entry.
+- `:add-default' - if t, prepend the filter with
+  `elfeed-summary-default-filter'.
 
 Available special forms:
 - `:misc' - print out feeds, not found by any query above.
@@ -479,11 +483,17 @@ SEARCH is a `<search-params>' form as described in
 `elfeed-summary-settings'.
 
 Implented the same way as `elfeed-search--update-list'."
-  (let* ((filter (elfeed-search-parse-filter (alist-get :filter search)))
+  (let* ((filter-str
+          (concat
+           (when (alist-get :add-default search)
+             elfeed-summary-default-filter)
+           (alist-get :filter search)))
+         (filter (elfeed-search-parse-filter filter-str))
          (head (list nil))
          (tail head)
          (unread 0)
-         (total 0))
+         (total 0)
+         unread-ids)
     (if elfeed-search-compile-filter
         ;; Force lexical bindings regardless of the current
         ;; buffer-local value. Lexical scope uses the faster
@@ -496,18 +506,21 @@ Implented the same way as `elfeed-search--update-list'."
                     tail (cdr tail)
                     total (1+ total))
               (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
-                (setq unread (1+ unread))))))
+                (setq unread (1+ unread))
+                (push (elfeed-entry-id entry) unread-ids) ))))
       (with-elfeed-db-visit (entry feed)
         (when (elfeed-search-filter filter entry feed total)
           (setf (cdr tail) (list entry)
                 tail (cdr tail)
                 total (1+ total))
           (when (member elfeed-summary-unread-tag (elfeed-entry-tags entry))
-            (setq unread (1+ unread))))))
+            (setq unread (1+ unread))
+            (push (elfeed-entry-id entry) unread-ids)))))
     `(search . ((params . ,(cdr search))
                 (faces . ,(funcall elfeed-summary-search-face-fn
                                    (cdr search) unread total))
                 (unread . ,unread)
+                (unread-ids . ,unread-ids)
                 (total . ,total)))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
@@ -589,6 +602,7 @@ The return value is a list of alists of the following elements:
   `elfeed-summary-settings'.
 - `faces' - list of faces for the search entry.
 - `unread' - number of unread entries in the search results.
+- `unread-ids' - ids of unread entries for marking them as read.
 - `total' - total number of entries in the search results."
   (let* ((feeds (elfeed-summary--extract-feeds
                  elfeed-summary-settings))
@@ -671,10 +685,10 @@ The return value is a list of alists of the following elements:
 
 If there's a widget at the point, pass the press event to the widget.
 That should result in the call to
-`elfeed-summary--search-feed-notify'.  Otherwise, if there's a group
+`elfeed-summary--feed-notify'.  Otherwise, if there's a group
 section, run the corresponding action for the group.
 
-The behavior of both `elfeed-summary--search-feed-notify' and
+The behavior of both `elfeed-summary--feed-notify' and
 `elfeed-summary--open-section' is modified by lexically scoped
 variables `elfeed-summary--search-show-read' and
 `elfeed-summary--search-mark-read'.
@@ -749,10 +763,10 @@ items."
     "="
     (rx-to-string (elfeed-feed-id feed) t))))
 
-(defun elfeed-summary--search-feed-notify (widget &rest _)
-  "A function to run in `:notify' in a feed widget button.
+(defun elfeed-summary--feed-notify (widget &rest _)
+  "The function to run in `:notify' in a feed widget button.
 
-WIDGET is an instance of the pressed widget."
+WIDGET is the instance of the pressed widget."
   (cond
    (elfeed-summary--search-mark-read
     (elfeed-summary--mark-read (list (widget-get widget :feed))))
@@ -816,11 +830,45 @@ descent."
                          'elfeed-summary-count-face))
                 (propertize title 'face (alist-get 'faces data)))))
     (widget-create 'push-button
-                   :notify #'elfeed-summary--search-feed-notify
+                   :notify #'elfeed-summary--feed-notify
                    :feed feed
                    :only-read (= 0 (alist-get 'unread data))
                    text)
     (insert "\n")))
+
+(defun elfeed-summary--mark-read-ids (ids)
+  "Mark elfeed entries with IDS as read."
+  (when (or (not elfeed-summary-confirm-mark-read)
+            (y-or-n-p "Mark all entries in feed as read? "))
+    (let ((ids-hash (make-hash-table)))
+      (dolist (id ids)
+        (puthash id t ids-hash))
+      (with-elfeed-db-visit (entry feed)
+        (when (and
+               (gethash (elfeed-entry-id entry) ids-hash nil)
+               (member elfeed-summary-unread-tag (elfeed-entry-tags entry)))
+          (setf (elfeed-entry-tags entry)
+                (seq-filter (lambda (tag) (not (eq elfeed-summary-unread-tag tag)))
+                            (elfeed-entry-tags entry))))) )
+    (elfeed-summary--refresh)))
+
+(defun elfeed-summary--search-notify (widget &rest _)
+  "The function to run in `:notify' in a search widget button.
+
+WIDGET is the instance of the pressed widget."
+  (cond
+   (elfeed-summary--search-mark-read
+    (elfeed-summary--mark-read-ids
+     (widget-get widget :unread-ids)))
+   (t (elfeed-summary--open-elfeed)
+      (elfeed-search-set-filter
+       (concat
+        (when (widget-get widget :add-default)
+          elfeed-summary-default-filter)
+        (widget-get widget :filter)
+        (unless (or elfeed-summary--search-show-read
+                    (widget-get widget :only-read))
+          (format " +%s " elfeed-summary-unread-tag)))))))
 
 (defun elfeed-summary--render-search (data _level)
   "Render a search item for the elfeed summary buffer.
@@ -846,11 +894,11 @@ descent."
                  'face
                  (alist-get 'faces data)))))
     (widget-create 'push-button
-                   :notify (lambda (widget &rest _)
-                             (elfeed-summary--open-elfeed)
-                             (elfeed-search-set-filter
-                              (widget-get widget :filter)))
+                   :notify #'elfeed-summary--search-notify
                    :filter (alist-get :filter search-data)
+                   :only-read (= 0 (alist-get 'unread data))
+                   :add-default (alist-get :add-default search-data)
+                   :unread-ids (alist-get 'unread-ids data)
                    text)
     (widget-insert "\n")))
 
