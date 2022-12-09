@@ -125,18 +125,18 @@
                                 (repeat symbol))
                           (cons (const :tag "Add the default filter string" :add-default)
                                 (boolean :tag "Add the default filter string")))))
-           (cons :tag "Auto tags"
+           (cons :tag "Generate a tree from tags"
                  (const auto-tags)
-                 (repeat :tag "Auto tag params"
+                 (repeat :tag "Generate a tree from tags"
                          (choice
-                          (cons :tag "Max level"
-                                (const :tag "Max level" :max-level)
+                          (cons :tag "Maximum tree level"
+                                (const :tag "Maximum tree level" :max-level)
                                 (number :tag "Value"))
-                          (cons :tag "Exclude used feeds"
-                                (const :tag "Exclude used feeds" :exclude-used)
-                                (boolean :tag "Exclude used feeds"))
-                          (cons :tag "Reorder tags"
-                                (const :tag "Reorder tags" :reorder-tags)
+                          (cons :tag "Use all feeds"
+                                (const :tag "Use all feeds" :all-feeds)
+                                (boolean :tag "Use all feeds"))
+                          (cons :tag "Original tag order"
+                                (const :tag "Original tag order" :original-order)
                                 (boolean :tag "Reorder tags"))
                           (cons :tag "Faces"
                                 (const :tag "Faces" :faces)
@@ -168,6 +168,8 @@ This is a list of these possible items:
   Each found feed will be represented as a line.
 - Search `(search . <search-params>)'
   Elfeed search, as defined by `elfeed-search-set-filter'.
+- Tags tree `(auto-tags . <auto-tags-params>)'
+  A tree generated automatically from the available tags.
 - a few special forms
 
 `<group-params>' is an alist with the following keys:
@@ -191,8 +193,6 @@ This is a list of these possible items:
 - `(or <q-1> <q-2> ... <q-n>)' or `(<q-1> <q-2> ... <q-n>)'
   Match if any of the conditions 1, 2, ..., n match.
 - `(not <query>)'
-
-Feed tags for the query are determined by the `elfeed-feeds'
 variable.
 
 Query examples:
@@ -211,6 +211,14 @@ Query examples:
 - `:tags' - list of tags to get the face of the entry.
 - `:add-default' - if t, prepend the filter with
   `elfeed-summary-default-filter'.
+
+`<auto-tags-params>' is an alist with the following keys:
+- `:max-level' - maximum level of the tree (default 2)
+- `:all-feeds' - use all feeds (by default this excludes feeds that
+  are found by queries)
+- `:original-order' - do not try to build a more concise tree by
+  putting the most frequent tags closer to the root of the tree.
+- `:Faces' - list of faces for groups.
 
 Available special forms:
 - `:misc' - print out feeds, not found by any query above.
@@ -640,27 +648,59 @@ The root of the tree has the value of nil."
         (puthash sequence t processed-sequences)))
     tree))
 
-(defun elfeed-summary--truncate-tree (tree max-level)
-  )
+(defun elfeed-summary--build-tree-auto-tags-recursive
+    (param tree feeds-by-tag-sequence unread-count total-count &optional level)
+  (unless level
+    (setq level 0))
+  (let ((max-level (or (alist-get :max-level (cdr param)) 2))
+        (face (when-let (faces (alist-get :faces (cdr param)))
+                (nth (% level (length faces)) faces))))
+    (append
+     ;; Just append all the feeds at the current level
+     (cl-loop for sequence in (alist-get 'sequences tree) append
+              (cl-loop for feed in (gethash sequence feeds-by-tag-sequence)
+                       collect (elfeed-summary--build-tree-feed
+                                feed unread-count total-count)))
+     ;; Go deeper if we can
+     (when (< level max-level)
+       (cl-loop
+        for (value . child-tree) in (alist-get 'children tree) collect
+        `(group . ((params . ((:title . ,(prin1-to-string value))))
+                   (face . ,face)
+                   (children . ,(elfeed-summary--build-tree-auto-tags-recursive
+                                 param child-tree feeds-by-tag-sequence
+                                 unread-count total-count (1+ level)))))))
+     ;; If we can't go deeper, this will just append all the feeds to
+     ;; the current level anyway
+     (when (>= level max-level)
+       (cl-loop for datum in (alist-get 'children tree) append
+                (elfeed-summary--build-tree-auto-tags-recursive
+                 param (cdr datum) feeds-by-tag-sequence
+                 unread-count total-count (1+ level)))))))
 
 (defun elfeed-summary--build-tree-auto-tags (param unread-count total-count misc-feeds)
-  (let ((max-level (or (alist-get (cdr param) :max-level) 1))
-        (feeds (if (or (alist-get (cdr param) :exclude-used) t)
+  ;; TODO query, misc or all
+  (let ((feeds (if (alist-get :all-feeds (cdr param))
                    (mapcar
-                    (lambda (feed)
-                      (cons feed (alist-get (elfeed-feed-id feed) elfeed-feeds)))
-                    misc-feeds)
+                    (lambda (datum) (cons (elfeed-db-get-feed (car datum)) (cdr datum)))
+                    elfeed-feeds)
                  (mapcar
-                  (lambda (datum) (cons (elfeed-db-get-feed (car datum)) (cdr datum)))
-                  elfeed-feeds)))
-        (reorder-tags (or (alist-get (cdr param) :reorder-tags) t)))
+                  (lambda (feed)
+                    (cons feed (alist-get (elfeed-feed-id feed) elfeed-feeds
+                                          nil nil #'equal)))
+                  misc-feeds)))
+        (reorder-tags (not (alist-get :original-order (cdr param)))))
     (when reorder-tags
       (setq feeds (elfeed-summary--build-tree-auto-tags-reorder-tags feeds)))
     (let ((tree (elfeed-summary--arrange-sequences-in-tree
                  (mapcar #'cdr feeds)))
           (feeds-by-tag-sequence (make-hash-table :test #'equal)))
-      (cl-loop for feed in feeds
-               ))))
+      (cl-loop
+       for (feed . sequence) in feeds
+       do (puthash sequence (cons feed (gethash sequence feeds-by-tag-sequence))
+                   feeds-by-tag-sequence))
+      (elfeed-summary--build-tree-auto-tags-recursive
+       param tree feeds-by-tag-sequence unread-count total-count))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   "Recursively create the summary details tree.
