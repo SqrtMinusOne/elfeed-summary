@@ -125,6 +125,23 @@
                                 (repeat symbol))
                           (cons (const :tag "Add the default filter string" :add-default)
                                 (boolean :tag "Add the default filter string")))))
+           (cons :tag "Auto tags"
+                 (const auto-tags)
+                 (repeat :tag "Auto tag params"
+                         (choice
+                          (cons :tag "Max level"
+                                (const :tag "Max level" :max-level)
+                                (number :tag "Value"))
+                          (cons :tag "Exclude used feeds"
+                                (const :tag "Exclude used feeds" :exclude-used)
+                                (boolean :tag "Exclude used feeds"))
+                          (cons :tag "Reorder tags"
+                                (const :tag "Reorder tags" :reorder-tags)
+                                (boolean :tag "Reorder tags"))
+                          (cons :tag "Faces"
+                                (const :tag "Faces" :faces)
+                                (repeat
+                                 (face :tag "Face"))))))
            (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
@@ -523,6 +540,128 @@ Implented the same way as `elfeed-search--update-list'."
                 (unread-ids . ,unread-ids)
                 (total . ,total)))))
 
+(defun elfeed-summary--get-tags-ordered ()
+  "Return the list of elfeed tags, properly ordered.
+
+The tags are ordered (1) by their most frequent position in
+`elfeed-feeds' and (2) alphabetically."
+  (let* ((tags-order
+          ;; list of (tag . ((<position-1> . <freq-1>) (<position-2> . <freq-2>) ...))
+          (cl-loop with tags-order = '()
+                   for feed in elfeed-feeds
+                   do (cl-loop for tag in (cdr feed)
+                               for i from 0
+                               unless (alist-get tag tags-order)
+                               do (push (list tag) tags-order)
+                               do (cl-incf (alist-get
+                                            i (alist-get tag tags-order) 0)))
+                   finally return tags-order))
+         ;; list of (tag . <most-frequent-position>)
+         (tags-most-freq-order
+          (cl-loop for (tag . order) in tags-order collect
+                   (cons
+                    tag
+                    (car
+                     (cl-reduce
+                      (lambda (acc value)
+                        (if (> (cdr value) (cdr acc))
+                            value
+                          acc))
+                      order
+                      :initial-value '(-1 . -1)))))))
+    (mapcar
+     #'car
+     (seq-sort
+      (lambda (datum1 datum2)
+        (if (not (= (cdr datum1) (cdr datum2)))
+            (< (cdr datum1) (cdr datum2))
+          (string-lessp (symbol-name (car datum1))
+                        (symbol-name (car datum2)))))
+      tags-most-freq-order))))
+
+(defun elfeed-summary--build-tree-auto-tags-reorder-tags (feeds)
+  "Reorder tags in FEEDS.
+
+FEEDS is a list of (<feed> . <tags>), where <feed> is an instance of
+`elfeed-feed' and <tags> is a list of tag symbols."
+  (let* ((all-tags (elfeed-summary--get-tags-ordered))
+         (tag-priority (make-hash-table)))
+    (cl-loop for tag in all-tags
+             for i from 0
+             do (puthash tag i tag-priority))
+    (cl-loop for (feed . tags) in feeds
+             collect
+             (cons feed
+                   (seq-sort-by (lambda (tag) (gethash tag tag-priority))
+                                #'> tags)))))
+
+(defun elfeed-summary--compare-sequences (sequence1 sequence2)
+  "Compare SEQUENCE1 and SEQUENCE2.
+
+Both are lists of symbols."
+  (cond
+   ((null sequence1) t)
+   ((null sequence2) nil)
+   (t (let ((item1 (symbol-name (car sequence1)))
+            (item2 (symbol-name (car sequence2))))
+        (if (string-equal item1 item2)
+            (elfeed-summary--compare-sequences (cdr sequence1)
+                                               (cdr sequence2))
+          (string-lessp item1 item2))))))
+
+(defun elfeed-summary--arrange-sequences-in-tree (sequences)
+  "Arrange SEQUENCES in a tree structure.
+
+Each element of SEQUENCES is a list of symbols.
+
+The resulting structure is an alist of tree nodes with the following keys:
+- `value' - the current node symbol
+- `children' - child nodes
+- `sequences' - sequences at this node
+
+The root of the tree has the value of nil."
+  (let ((ordered-sequences
+         (seq-reverse
+          (seq-sort #'elfeed-summary--compare-sequences sequences)))
+        (tree `(,nil . ((value . ,nil) (children . ,nil) (sequences . ,nil))))
+        current-tree-pos
+        (processed-sequences (make-hash-table :test #'equal)))
+    (dolist (sequence ordered-sequences)
+      (unless (gethash sequence processed-sequences)
+        (setq current-tree-pos tree)
+        (dolist (value sequence)
+          (if-let ((value-in-tree (alist-get value (alist-get 'children current-tree-pos))))
+              (setq current-tree-pos value-in-tree)
+            (setq current-tree-pos
+                  (setf
+                   (alist-get value (alist-get 'children current-tree-pos))
+                   `((value . ,value) (children . ,nil) (sequences . ,nil))))))
+        (push sequence (alist-get 'sequences current-tree-pos))
+        (puthash sequence t processed-sequences)))
+    tree))
+
+(defun elfeed-summary--truncate-tree (tree max-level)
+  )
+
+(defun elfeed-summary--build-tree-auto-tags (param unread-count total-count misc-feeds)
+  (let ((max-level (or (alist-get (cdr param) :max-level) 1))
+        (feeds (if (or (alist-get (cdr param) :exclude-used) t)
+                   (mapcar
+                    (lambda (feed)
+                      (cons feed (alist-get (elfeed-feed-id feed) elfeed-feeds)))
+                    misc-feeds)
+                 (mapcar
+                  (lambda (datum) (cons (elfeed-db-get-feed (car datum)) (cdr datum)))
+                  elfeed-feeds)))
+        (reorder-tags (or (alist-get (cdr param) :reorder-tags) t)))
+    (when reorder-tags
+      (setq feeds (elfeed-summary--build-tree-auto-tags-reorder-tags feeds)))
+    (let ((tree (elfeed-summary--arrange-sequences-in-tree
+                 (mapcar #'cdr feeds)))
+          (feeds-by-tag-sequence (make-hash-table :test #'equal)))
+      (cl-loop for feed in feeds
+               ))))
+
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   "Recursively create the summary details tree.
 
@@ -547,6 +686,9 @@ The resulting form is described in `elfeed-summary--get-data'."
            append (cl-loop for feed in (elfeed-summary--get-feeds (cdr param))
                            collect (elfeed-summary--build-tree-feed
                                     feed unread-count total-count))
+           else if (and (listp param) (eq (car param) 'auto-tags))
+           append (elfeed-summary--build-tree-auto-tags
+                   param unread-count total-count misc-feeds)
            else if (eq param :misc)
            append (cl-loop for feed in misc-feeds
                            collect (elfeed-summary--build-tree-feed
