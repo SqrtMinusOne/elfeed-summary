@@ -123,7 +123,7 @@
                           (cons :tag "Tags"
                                 (const :tag "Tags" :tags)
                                 (repeat symbol))
-                          (cons (cons :tag "Add the default filter string" :add-default)
+                          (cons (const :tag "Add the default filter string" :add-default)
                                 (boolean :tag "Add the default filter string")))))
            (const :tag "Misc feeds" :misc))))
 
