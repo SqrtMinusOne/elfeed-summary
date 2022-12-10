@@ -307,7 +307,9 @@ Accepts the only parameter, which is a tree node created by
 `elfeed-summary--arrange-sequences-in-tree'.
 
 See `elfeed-summary--auto-tags-group-title' for the default
-implementation.")
+implementation."
+  :group 'elfeed-summary
+  :type 'function)
 
 (defcustom elfeed-summary-refresh-on-each-update nil
   "Whether to refresh the elfeed summary buffer after each update.
@@ -703,7 +705,8 @@ LEVEL is the current level of recursion, which is 0 by default."
      ;; Go deeper if we can
      (when (< level max-level)
        (cl-loop
-        for (value . child-tree) in (alist-get 'children tree) collect
+        for datum in (alist-get 'children tree)
+        for child-tree = (cdr datum) collect
         `(group . ((params . ((:title
                                . ,(funcall elfeed-summary-auto-tags-group-title-fn
                                            child-tree))))
@@ -1082,12 +1085,14 @@ descent."
       (dolist (id ids)
         (puthash id t ids-hash))
       (with-elfeed-db-visit (entry feed)
+        ;; XXX to shut up the byte compiler
+        (ignore feed)
         (when (and
                (gethash (elfeed-entry-id entry) ids-hash nil)
                (member elfeed-summary-unread-tag (elfeed-entry-tags entry)))
           (setf (elfeed-entry-tags entry)
                 (seq-filter (lambda (tag) (not (eq elfeed-summary-unread-tag tag)))
-                            (elfeed-entry-tags entry))))) )
+                            (elfeed-entry-tags entry))))))
     (elfeed-summary--refresh)))
 
 (defun elfeed-summary--search-notify (widget &rest _)
@@ -1341,7 +1346,7 @@ summary buffer."
   "Update all the feeds in `elfeed-feeds' and the summary buffer."
   (interactive)
   (elfeed-log 'info "Elfeed update: %s"
-              (format-time-string "%B %e %Y %H:%M:%S %Z"))
+              (format-time-string "%B %e %Y %T %Z"))
   ;; XXX Here's a remarkably dirty solution.  This command is meant to
   ;; refresh the elfeed-summary buffer after all the feeds have been
   ;; updated.  But elfeed doesn't seem to provide anything to hook
