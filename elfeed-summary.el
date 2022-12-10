@@ -984,6 +984,20 @@ The return value is a list of alists of the following elements:
 (defvar elfeed-summary--search-mark-read nil
   "If t, mark the feed as read instead of switching to it.")
 
+(defun elfeed-summary--magit-section-toggle-workaround (section)
+  "`magit-section-toggle' with a workaround for invisible lines.
+
+SECTION is an instance of `magit-section'.
+
+No idea what I'm doing wrong, but this seems to help."
+  (interactive (list (save-excursion
+                       (let ((lines (count-lines (point-min) (point-max))))
+                         (while (and (invisible-p (point))
+                                     (< (line-number-at-pos) lines))
+                           (forward-line 1)))
+                       (magit-current-section))))
+  (magit-section-toggle section))
+
 (defvar elfeed-summary-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
@@ -994,9 +1008,10 @@ The return value is a list of alists of the following elements:
     (define-key map (kbd "R") #'elfeed-summary-update)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
     (define-key map (kbd "U") #'elfeed-summary--action-mark-read)
+    (define-key map (kbd "<tab>") #'elfeed-summary--magit-section-toggle-workaround)
     (when (fboundp #'evil-define-key*)
       (evil-define-key* 'normal map
-        (kbd "<tab>") #'magit-section-toggle
+        (kbd "<tab>") #'elfeed-summary--magit-section-toggle-workaround
         "r" #'elfeed-summary--refresh
         "R" #'elfeed-summary-update
         "u" #'elfeed-summary-toggle-only-unread
