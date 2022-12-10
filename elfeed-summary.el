@@ -127,7 +127,7 @@
                                 (boolean :tag "Add the default filter string")))))
            (cons :tag "Generate a tree from tags"
                  (const auto-tags)
-                 (repeat :tag "Generate a tree from tags"
+                 (repeat :tag "Tree generation parameters"
                          (choice
                           (cons :tag "Source"
                                 (const :tag "Source" :source)
@@ -141,11 +141,28 @@
                                 (number :tag "Value"))
                           (cons :tag "Original tag order"
                                 (const :tag "Original tag order" :original-order)
-                                (boolean :tag "Reorder tags"))
+                                (boolean :tag "Original tag order"))
                           (cons :tag "Faces"
                                 (const :tag "Faces" :faces)
                                 (repeat
                                  (face :tag "Face"))))))
+           (cons :tag "Insert each tag as group"
+                 (const tag-groups)
+                 (repeat :tag "Tag group parameters"
+                         (choice
+                          (cons :tag "Source"
+                                (const :tag "Source" :source)
+                                (choice
+                                 (cons :tag "Query"
+                                       (const query)
+                                       elfeed-summary-query)
+                                 (const :tag "Misc feeds" :misc)))
+                          (cons :tag "Allow feeds to repeat"
+                                (const :tag "Allow feeds to repeat" :repeat-feeds)
+                                (boolean :tag "Allow feeds to repeat"))
+                          (cons :tag "Face"
+                                (const :tag "Face" :faces)
+                                (face :tag "Face")))))
            (const :tag "Misc feeds" :misc))))
 
 (defgroup elfeed-summary ()
@@ -174,6 +191,8 @@ This is a list of these possible items:
   Elfeed search, as defined by `elfeed-search-set-filter'.
 - Tags tree `(auto-tags . <auto-tags-params>)'
   A tree generated automatically from the available tags.
+- Tag groups `(tag-groups . <tag-group-params>)'
+  Insert one tag as one group.
 - a few special forms
 
 `<group-params>' is an alist with the following keys:
@@ -223,6 +242,13 @@ Query examples:
 - `:original-order' - do not try to build a more concise tree by
   putting the most frequent tags closer to the root of the tree.
 - `:faces' - list of faces for groups.
+
+`<tag-group-params>' is an alist with the following keys:
+- `:source' - which feeds to use to build the tree.
+  Can be `:misc' (default) or `(query . <query-params>)'.
+- `:repeat-feeds' - allow feeds to repeat.  Otherwise, each feed is
+  assigned to group with the least amount of members.
+- `:face' - face for groups.
 
 Available special forms:
 - `:misc' - print out feeds, not found by any query above.
@@ -722,6 +748,27 @@ LEVEL is the current level of recursion, which is 0 by default."
                  param (cdr datum) feeds-by-tag-sequence
                  unread-count total-count (1+ level)))))))
 
+(defun elfeed-summary--build-tree-get-feeds (param misc-feeds)
+  "Get feeds for PARAM.
+
+PARAM is an alist with the optional `:source' key.  The value can be
+either `(query . <query-params>)' or `:misc' (default).
+
+MISC-FEEDS is the list of feeds used for `:misc'.
+
+The result is a list of items like (`<feed>' tag1 tag2 ...), where
+`<feed>' is an instance of `elfeed-feed'."
+  (let* ((source (alist-get :source (cdr param))))
+    (mapcar
+     (lambda (feed)
+       (cons feed (alist-get (elfeed-feed-id feed) elfeed-feeds
+                             nil nil #'equal)))
+     (cond ((or (eq source :misc) (null source))
+            misc-feeds)
+           ((and (listp source) (eq (car source) 'query))
+            (elfeed-summary--get-feeds (cdr source)))
+           (t (error "Invalid source: %s" source))))))
+
 (defun elfeed-summary--build-tree-auto-tags (param unread-count total-count misc-feeds)
   "Create the auto-tags tree.
 
@@ -732,17 +779,8 @@ UNREAD-COUNT and TOTAL-COUNT are hashmaps with feed ids as keys and
 corresponding numbers of entries as values.
 
 MISC-FEEDS is a list of feeds that were not used in PARAMS."
-  (let* ((source (alist-get :source (cdr param)))
-         (feeds (mapcar
-                 (lambda (feed)
-                   (cons feed (alist-get (elfeed-feed-id feed) elfeed-feeds
-                                         nil nil #'equal)))
-                 (cond ((or (eq source :misc) (null source))
-                        misc-feeds)
-                       ((and (listp source) (eq (car source) 'query))
-                        (elfeed-summary--get-feeds (cdr source)))
-                       (t (error "Invalid auto-tags source: %s" source)))))
-         (reorder-tags (not (alist-get :original-order (cdr param)))))
+  (let ((feeds (elfeed-summary--build-tree-get-feeds param misc-feeds))
+        (reorder-tags (not (alist-get :original-order (cdr param)))))
     (when reorder-tags
       (setq feeds (elfeed-summary--build-tree-auto-tags-reorder-tags feeds)))
     (let ((tree (elfeed-summary--arrange-sequences-in-tree
@@ -754,6 +792,59 @@ MISC-FEEDS is a list of feeds that were not used in PARAMS."
                    feeds-by-tag-sequence))
       (elfeed-summary--build-tree-auto-tags-recursive
        param tree feeds-by-tag-sequence unread-count total-count))))
+
+(defun elfeed-summary--build-tree-tag-groups (param unread-count total-count misc-feeds)
+  "Create the tag-groups tree.
+
+PARAM is a cell of `(tag-groups . <tag-group-params>)', with the
+`<tag-group-params>' form as defined in `elfeed-summary-settings'.
+
+UNREAD-COUNT and TOTAL-COUNT are hashmaps with feed ids as keys and
+corresponding numbers of entries as values.
+
+MISC-FEEDS is a list of feeds that were not used in PARAMS."
+  (let ((feeds (elfeed-summary--build-tree-get-feeds param misc-feeds))
+        (repeat-feeds (alist-get :repeat-feeds (cdr param)))
+        (face (alist-get :face (cdr param)))
+        (groups (make-hash-table)))
+    (if (not repeat-feeds)
+        (let ((tag-freqs (make-hash-table)))
+          (cl-loop for feed in feeds do
+                   (cl-loop for tag in (cdr feed) do
+                            (puthash
+                             tag (1+ (gethash tag tag-freqs 0))
+                             tag-freqs)))
+          (cl-loop for feed in feeds
+                   for min-freq-tag = (cl-reduce
+                                       (lambda (acc tag)
+                                         (let ((freq (gethash tag tag-freqs)))
+                                           (if (or (null (cdr acc)) (< freq (cdr acc)))
+                                               (cons tag freq)
+                                             acc)))
+                                       (cdr feed)
+                                       :initial-value '(nil . nil))
+                   when min-freq-tag do
+                   (puthash (car min-freq-tag)
+                            (cons (car feed) (gethash min-freq-tag groups))
+                            groups)))
+      (cl-loop for feed in feeds do
+               (cl-loop for tag in (cdr feed) do
+                        (puthash tag (cons (car feed) (gethash tag groups)) groups))))
+    (let ((groups-list (seq-sort-by
+                        (lambda (f) (symbol-name (car f)))
+                        #'string-lessp
+                        (cl-loop for tag being the hash-keys of groups
+                                 using (hash-values feeds)
+                                 collect (cons tag feeds)))))
+      (cl-loop for (tag . feeds) in groups-list
+               collect `(group
+                         . ((params . ((:title . ,(symbol-name tag))))
+                            (face . ,face)
+                            (children . ,(mapcar
+                                          (lambda (feed) (elfeed-summary--build-tree-feed
+                                                          feed unread-count total-count))
+                                          (seq-sort
+                                           #'elfeed-summary--feed-sort-fn feeds)))))))))
 
 (defun elfeed-summary--build-tree (params unread-count total-count misc-feeds)
   "Recursively create the summary details tree.
@@ -782,6 +873,9 @@ The resulting form is described in `elfeed-summary--get-data'."
            else if (and (listp param) (eq (car param) 'auto-tags))
            append (elfeed-summary--build-tree-auto-tags
                    param unread-count total-count misc-feeds)
+           else if (and (listp param) (eq (car param) 'tag-groups))
+           append (elfeed-summary--build-tree-tag-groups
+                   param unread-count total-count misc-feeds)
            else if (eq param :misc)
            append (cl-loop for feed in (seq-sort #'elfeed-summary--feed-sort-fn
                                                  misc-feeds)
@@ -799,7 +893,8 @@ PARAMS is a form as described in `elfeed-summary-settings'."
                    (cdr (assoc :elements (cdr param))))
            else if (and (listp param) (eq (car param) 'query))
            append (elfeed-summary--get-feeds (cdr param))
-           else if (and (listp param) (eq (car param) 'auto-tags)
+           else if (and (listp param)
+                        (or (eq (car param) 'auto-tags) (eq (car param) 'tag-groups))
                         (eq (car-safe (alist-get :source (cdr param)))
                             'query))
            append (elfeed-summary--get-feeds
