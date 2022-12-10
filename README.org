@@ -173,7 +173,7 @@ Here is an excerpt from my configuration that was used to produce this screensho
 #+end_src
 ** Automatic generation of groups
 *** =auto-tags=
-As described in the [[*Tree configuration][tree configuration]] section, there are two ways to avoid defining all the relevant groups manually, =auto-tags=  and =tag-groups=. Both use tags that are defined in =elfeed-feeds=.
+As described in the [[*Tree configuration][tree configuration]] section, there are two ways to avoid defining all the relevant groups manually, =auto-tags=  and =tag-groups=. Both use tags that are configured in =elfeed-feeds=.
 
 =auto-tags= tries to build the most concise tree from these tags. E.g. if we have feeds:
 #+begin_example
@@ -196,7 +196,7 @@ The tree is truncated by =:max-level=, which is 2 by default.
 
 If tags don't form this kind of hierarchy in =elfeed-feeds=, the algorithm will still try to build the most "optimal" tree, where the most frequent tags are on the top.
 
-To avoid that you can set =(:original-order . t)=, in which case each feed will be placed at the path =tag1 tag2 ... tagN feed=, where the order of tags is the same as in =elfeed-feeds=. By the way, this allows reproducing the hierarchy of [[https://github.com/remyhonig/elfeed-org][elfeed-org]], e.g. this structure:
+To avoid that, you can set =(:original-order . t)=, in which case each feed is placed at the path =tag1 tag2 ... tagN feed=, where the order of tags is the same as in =elfeed-feeds=. By the way, this allows reproducing a hierarchy from [[https://github.com/remyhonig/elfeed-org][elfeed-org]], e.g. this setup:
 #+begin_example
 ,* tag1                      :tag1:
 ,** feed1
@@ -246,7 +246,7 @@ E.g., the elfeed-org setup from the section above will be converted to this stru
   - feed5
   - feed6
 
-And with =:repeat-feeds=:
+And with =:repeat-feeds= enabled:
 - tag1
   - feed1
   - feed2
