@@ -24,6 +24,8 @@ The tree consists of:
 - searches;
 - groups, that can include other groups, feeds, and searches.
 
+Groups can also be generated automatically.
+
 Available keybindings in the summary mode:
 
 | Keybinding | Command                             | Description                                                                                                                     |
@@ -49,6 +51,10 @@ This is a list of these possible items:
   Query extracts a subset of elfeed feeds based on the given criteria. Each found feed will be represented as a line.
 - Search =(search . <search-params>)=
   Elfeed search, as defined by =elfeed-search-set-filter=.
+- Tags tree =(auto-tags . <auto-tags-params>)=
+  A tree generated automatically from the available tags.
+- Tag groups =(tag-groups . <tag-group-params>)=
+  Insert one tag as one group.
 - a few special forms
 
 =<group-params>= is an alist with the following keys:
@@ -88,6 +94,21 @@ Query examples:
   =elfeed-search-set-filter=
 - =:title= (mandatory) title.
 - =:tags= - list of tags to get the face of the entry.
+
+=<auto-tags-params>= is an alist with the following keys:
+- =:max-level= - maximum level of the tree (default 2)
+- =:source= - which feeds to use to build the tree.
+  Can be =:misc= (default) or =(query . <query-params>)=.
+- =:original-order= - do not try to build a more concise tree by
+  putting the most frequent tags closer to the root of the tree.
+- =:faces= - list of faces for groups.
+
+=<tag-group-params>= is an alist with the following keys:
+- =:source= - which feeds to use to build the tree.
+  Can be =:misc= (default) or =(query . <query-params>)=.
+- =:repeat-feeds= - allow feeds to repeat.  Otherwise, each feed is
+  assigned to group with the least amount of members.
+- =:face= - face for groups.
 
 Available special forms:
 - =:misc= - print out feeds, not found by any query above.
@@ -150,11 +171,106 @@ Here is an excerpt from my configuration that was used to produce this screensho
                  (:title . "Ungrouped")
                  (:elements :misc))))))
 #+end_src
+** Automatic generation of groups
+*** =auto-tags=
+As described in the [[*Tree configuration][tree configuration]] section, there are two ways to avoid defining all the relevant groups manually, =auto-tags=  and =tag-groups=. Both use tags that are defined in =elfeed-feeds=.
 
+=auto-tags= tries to build the most concise tree from these tags. E.g. if we have feeds:
+#+begin_example
+feed1 tag1 tag2
+feed2 tag1 tag2
+feed3 tag1 tag3
+feed4 tag1 tag3
+#+end_example
+
+It will create the following tree:
+- tag1
+  - tag2
+    - feed1
+    - feed2
+  - tag3
+    - feed3
+    - feed4
+
+The tree is truncated by =:max-level=, which is 2 by default.
+
+If tags don't form this kind of hierarchy in =elfeed-feeds=, the algorithm will still try to build the most "optimal" tree, where the most frequent tags are on the top.
+
+To avoid that you can set =(:original-order . t)=, in which case each feed will be placed at the path =tag1 tag2 ... tagN feed=, where the order of tags is the same as in =elfeed-feeds=. By the way, this allows reproducing the hierarchy of [[https://github.com/remyhonig/elfeed-org][elfeed-org]], e.g. this structure:
+#+begin_example
+,* tag1                      :tag1:
+,** feed1
+,** feed2                    :tag2:
+,** feed3                    :tag2:
+,* tag3                      :tag3:
+,** feed4                    :tag2:
+,** feed5                    :tag2:
+,** feed6                    :tag2:
+#+end_example
+
+Will be converted to this:
+- tag1
+  - feed1
+  - tag2
+    - feed2
+    - feed3
+- tag3
+  - tag2
+    - feed4
+    - feed5
+    - feed6
+
+Whereas without =:original-order= the structure will be:
+- tag1
+  - feed1
+- tag2
+  - tag1
+    - feed2
+    - feed3
+  - tag3
+    - feed4
+    - feed5
+    - feed6
+*** =tag-groups=
+The second option is =tag-groups=, which creates a group for each tag.
+
+By default, each feed is assigned to its less frequent tag. This can be turned off by setting =(:repeat-feeds . t)=.
+
+E.g., the elfeed-org setup from the section above will be converted to this structure:
+- tag1
+  - feed1
+  - feed2
+  - feed3
+- tag3
+  - feed4
+  - feed5
+  - feed6
+
+And with =:repeat-feeds=:
+- tag1
+  - feed1
+  - feed2
+  - feed3
+- tag2
+  - feed2
+  - feed3
+  - feed4
+  - feed5
+  - feed6
+- tag3
+  - feed4
+  - feed5
+  - feed6
+*** Common options
+Both =auto-tags= and =tag-groups= allow setting the =:search= parameter.
+
+The default value is =(:search . :misc)=, i.e. use feeds that weren't found by other queries.
+
+Passing =(:search . (query . <query-params>))= is another option.
 ** Faces
-Faces for groups by default use the =elfeed-summary-group-faces= variable, which serves as a list of faces for each level of the tree. Individual group faces can be overridden with the =:face= attribute.
+Group faces by default use the =elfeed-summary-group-faces= variable, which serves as a list of faces for each level of the tree. Individual group faces can be overridden with the =:face= attribute.
 
-Faces for feeds by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list. This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
+Feed faces by default reuse [[https://github.com/skeeto/elfeed#custom-tag-faces][the existing elfeed mechanism]]. The tags for feeds are taken from the =elfeed-feeds= variable; if a feed has at least one unread entry, the unread tag is added to the list. This can be overridden by setting the =elfeed-summary-feed-face-fn= variable.
 
 Searches are mostly the same as feeds, but tags for the search are taken from the =:tags= attribute. This also can be overridden with =elfeed-summary-search-face-fn= variable.
 ** Opening =elfeed-search= in other window
@@ -168,8 +284,6 @@ Then =RET= and =M-RET= in the =elfeed-summary= buffer will open the search buffe
 =elfeed-summary-width= regulates the width of the remaining summary window in this case. It is useful because the data in the search buffer is generally wider than in the summary buffer. The variable can also be set to =nil= to disable this behavior.
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
-
-Setting a unique URL for every feed resolves the problem.
 * Ideas and alternatives
 The default interface of elfeed is just a list of all entries. Naturally, it gets hard to navigate when there are a lot of sources with varying frequencies of posts.
 
