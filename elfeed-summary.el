@@ -1,6 +1,6 @@
 ;;; elfeed-summary.el --- Feed summary interface for elfeed -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Korytov Pavel
+;; Copyright (C) 2022, 2023 Korytov Pavel
 
 ;; Author: Korytov Pavel <thexcloud@gmail.com>
 ;; Maintainer: Korytov Pavel <thexcloud@gmail.com>
@@ -386,6 +386,14 @@ Useful only if `elfeed-summary-other-window' is set to t."
   "Face for the number of entries of an unread feed or search."
   :group 'elfeed-summary)
 
+(defface elfeed-summary-button-face
+  '((t (:inherit bold)))
+  "Face for buttons in the elfeed summary buffer.
+
+This has to be distinct from the built-it `widget-button' face because
+some themes override the foreground there, which shadows faces in the
+button text."
+  :group 'elfeed-summary)
 
 ;;; Logic
 (cl-defun elfeed-summary--match-tag (query &key tags title url author title-meta)
@@ -1184,6 +1192,7 @@ descent."
                    :notify #'elfeed-summary--feed-notify
                    :feed feed
                    :only-read (= 0 (alist-get 'unread data))
+                   :button-face 'elfeed-summary-button-face
                    text)
     (insert "\n")))
 
