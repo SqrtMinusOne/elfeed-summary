@@ -282,6 +282,21 @@ If you set:
 Then =RET= and =M-RET= in the =elfeed-summary= buffer will open the search buffer in other window.
 
 =elfeed-summary-width= regulates the width of the remaining summary window in this case. It is useful because the data in the search buffer is generally wider than in the summary buffer. The variable can also be set to =nil= to disable this behavior.
+** Skipping feeds
+[[https://tt-rss.org/][tt-rss]] has a feature to disable updating a particular feed but keep it in the feed list. I also want that for elfeed.
+
+To use that, set =elfeed-summary-skip-sync-tag= to some value:
+#+begin_src emacs-lisp
+(setq elfeed-summary-skip-sync-tag 'skip)
+#+end_src
+
+And tag the feeds you want to skip with this tag. Then, running =M-x elfeed-summary-update= will skip them. This won't affect =M-x elfeed-update= unless you:
+#+begin_src emacs-lisp
+(advice-add #'elfeed-update :override #'elfeed-summary-update)
+#+end_src
+
+Also watch out if you use [[https://github.com/remyhonig/elfeed-org][elfeed-org]] and want to use the =ignore= tag, because this package omits feeds with this tag altogether (configurable by =rmh-elfeed-org-ignore-tag=).
+
 ** Other options
 Also take a look at =M-x customize-group elfeed-summary= for the rest of available options.
 * Ideas and alternatives

@@ -288,6 +288,17 @@ Probably should be one of `elfeed-initial-tags'."
   :group 'elfeed-summary
   :type 'symbol)
 
+(defcustom elfeed-summary-skip-sync-tag nil
+  "Do not sync feeds with this tag.
+
+Feeds are tagged in `elfeed-feeds'.  Watch out if you're using
+elfeed-org, because `rmh-elfeed-org-ignore-tag' is set to \"ignore\"
+by default, which seems to remove the feed from `elfeed-feeds'
+altogether.  This options keeps the feed there, just makes
+`elfeed-summary-update' to skip in sync."
+  :group 'elfeed-summary
+  :type 'symbol)
+
 (defcustom elfeed-summary-feed-face-fn #'elfeed-summary--feed-face-fn
   "Function to get the face of the feed entry.
 
@@ -1461,6 +1472,27 @@ summary buffer."
     (with-current-buffer buffer
       (elfeed-summary--refresh))))
 
+(defun elfeed-summary--feed-list ()
+  "Return a flat list version of `elfeed-feeds'.
+
+This is a modification of `elfeed-feed-list' that takes
+`elfeed-summary-skip-sync-tag' in account.  The return value is a list
+of string."
+  ;; Validate elfeed-feeds and fail early rather than asynchronously later.
+  (dolist (feed elfeed-feeds)
+    (unless (cl-typecase feed
+              (list (and (stringp (car feed))
+                         (cl-every #'symbolp (cdr feed))))
+              (string t))
+      ;; Chris, package-lint doesn't like your code :P
+      (error "`elfeed-feeds' malformed, bad entry: %S" feed)))
+  (cl-loop for feed in elfeed-feeds
+           when (and (listp feed)
+                     (not (memq elfeed-summary-skip-sync-tag
+                                (cdr feed))))
+           collect (car feed)
+           else if (not (listp feed)) collect feed))
+
 (defun elfeed-summary-update ()
   "Update all the feeds in `elfeed-feeds' and the summary buffer."
   (interactive)
@@ -1483,7 +1515,7 @@ summary buffer."
                                (byte-code-function-p hook))))
                     elfeed-update-hooks))
   (let* ((elfeed--inhibit-update-init-hooks t)
-         (remaining-feeds (elfeed-feed-list))
+         (remaining-feeds (elfeed-summary--feed-list))
          (elfeed-update-closure
           (lambda (url)
             (message (if (> (elfeed-queue-count-total) 0)
@@ -1507,7 +1539,7 @@ summary buffer."
                       elfeed-summary-refresh-on-each-update)
               (elfeed-summary--refresh-if-exists)))))
     (add-hook 'elfeed-update-hooks elfeed-update-closure)
-    (mapc #'elfeed-update-feed (elfeed--shuffle (elfeed-feed-list)))
+    (mapc #'elfeed-update-feed (elfeed--shuffle (elfeed-summary--feed-list)))
     (run-hooks 'elfeed-update-init-hooks)
     (elfeed-db-save)))
 
