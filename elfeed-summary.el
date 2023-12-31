@@ -1496,6 +1496,9 @@ of string."
            collect (car feed)
            else if (not (listp feed)) collect feed))
 
+(defvar elfeed-summary--update-start-time nil
+  "Time when the current elfeed update started.")
+
 (defun elfeed-summary--update (feeds)
   "Update elfeed FEEDS."
   ;; XXX Here's a remarkably dirty solution.  This command is meant to
@@ -1514,8 +1517,10 @@ of string."
                       (not (or (and (listp hook) (eq (car hook) 'closure))
                                (byte-code-function-p hook))))
                     elfeed-update-hooks))
+  (setq elfeed-summary--update-start-time (time-convert nil 'integer))
   (let* ((elfeed--inhibit-update-init-hooks t)
          (remaining-feeds (seq-copy feeds))
+         (feed-count (length remaining-feeds))
          (elfeed-update-closure
           (lambda (url)
             (message (if (> (elfeed-queue-count-total) 0)
@@ -1523,7 +1528,12 @@ of string."
                                (in-process (elfeed-queue-count-active)))
                            (format "%d jobs pending, %d active..."
                                    (- total in-process) in-process))
-                       "Elfeed update completed"))
+                       (format "Elfeed update completed: %s feeds in %s"
+                               feed-count
+                               (format-seconds
+                                "%M, %S" (time-subtract
+                                          (time-convert nil 'integer)
+                                          elfeed-summary--update-start-time)))))
             (setq remaining-feeds
                   (seq-remove
                    (lambda (url-1)
