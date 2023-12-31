@@ -1568,10 +1568,19 @@ of string."
                   (list (elfeed-feed-url feed)))
                 (when-let (section (magit-current-section))
                   (when (slot-boundp section 'group)
-                    (elfeed-summary--group-extract-feeds
-                     (oref section group)))))))
+                    (mapcar #'elfeed-feed-url
+                            (elfeed-summary--group-extract-feeds
+                             (oref section group)))))))
+        (ignore-feeds
+         (cl-loop for feed in elfeed-feeds
+                  when (and (listp feed) (memq elfeed-summary-skip-sync-tag
+                                               (cdr feed)))
+                  collect (car feed))))
     (unless feeds
       (user-error "No feeds at point"))
+    (setq feeds (seq-difference feeds ignore-feeds))
+    (unless feeds
+      (user-error "All feeds at point are ignored"))
     (elfeed-summary--update feeds)))
 
 (defvar elfeed-summary--setup nil
