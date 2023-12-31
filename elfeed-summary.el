@@ -1026,6 +1026,7 @@ No idea what I'm doing wrong, but this seems to help."
     (define-key map (kbd "q") #'elfeed-summary-quit-window)
     (define-key map (kbd "r") #'elfeed-summary--refresh)
     (define-key map (kbd "R") #'elfeed-summary-update)
+    (define-key map (kbd "p") #'elfeed-summary-update-at-point)
     (define-key map (kbd "u") #'elfeed-summary-toggle-only-unread)
     (define-key map (kbd "U") #'elfeed-summary--action-mark-read)
     (define-key map (kbd "<tab>") #'elfeed-summary--magit-section-toggle-workaround)
@@ -1034,6 +1035,7 @@ No idea what I'm doing wrong, but this seems to help."
         (kbd "<tab>") #'elfeed-summary--magit-section-toggle-workaround
         "r" #'elfeed-summary--refresh
         "R" #'elfeed-summary-update
+        "p"  #'elfeed-summary-update-at-point
         "u" #'elfeed-summary-toggle-only-unread
         (kbd "RET") #'elfeed-summary--action
         "M-RET" #'elfeed-summary--action-show-read
@@ -1494,11 +1496,8 @@ of string."
            collect (car feed)
            else if (not (listp feed)) collect feed))
 
-(defun elfeed-summary-update ()
-  "Update all the feeds in `elfeed-feeds' and the summary buffer."
-  (interactive)
-  (elfeed-log 'info "Elfeed update: %s"
-              (format-time-string "%B %e %Y %T %Z"))
+(defun elfeed-summary--update (feeds)
+  "Update elfeed FEEDS."
   ;; XXX Here's a remarkably dirty solution.  This command is meant to
   ;; refresh the elfeed-summary buffer after all the feeds have been
   ;; updated.  But elfeed doesn't seem to provide anything to hook
@@ -1516,7 +1515,7 @@ of string."
                                (byte-code-function-p hook))))
                     elfeed-update-hooks))
   (let* ((elfeed--inhibit-update-init-hooks t)
-         (remaining-feeds (elfeed-summary--feed-list))
+         (remaining-feeds (seq-copy feeds))
          (elfeed-update-closure
           (lambda (url)
             (message (if (> (elfeed-queue-count-total) 0)
@@ -1540,9 +1539,30 @@ of string."
                       elfeed-summary-refresh-on-each-update)
               (elfeed-summary--refresh-if-exists)))))
     (add-hook 'elfeed-update-hooks elfeed-update-closure)
-    (mapc #'elfeed-update-feed (elfeed--shuffle (elfeed-summary--feed-list)))
+    (mapc #'elfeed-update-feed (elfeed--shuffle feeds))
     (run-hooks 'elfeed-update-init-hooks)
     (elfeed-db-save)))
+
+(defun elfeed-summary-update ()
+  "Update all feeds in `elfeed-feeds' and the summary buffer."
+  (interactive)
+  (elfeed-log 'info "Elfeed update: %s"
+              (format-time-string "%B %e %Y %T %Z"))
+  (elfeed-summary--update (elfeed-summary--feed-list)))
+
+(defun elfeed-summary-update-at-point ()
+  "Update `elfeed-summary' feeds at point."
+  (interactive)
+  (let ((feeds (or
+                (when-let (feed (widget-get (get-char-property (point) 'button) :feed))
+                  (list (elfeed-feed-url feed)))
+                (when-let (section (magit-current-section))
+                  (when (slot-boundp section 'group)
+                    (elfeed-summary--group-extract-feeds
+                     (oref section group)))))))
+    (unless feeds
+      (user-error "No feeds at point"))
+    (elfeed-summary--update feeds)))
 
 (defvar elfeed-summary--setup nil
   "Whether elfeed summary was set up.")
