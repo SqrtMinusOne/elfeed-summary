@@ -1117,8 +1117,8 @@ If `elfeed-summary-other-window' is t, open elfeed in other window."
             (enlarge-window (- elfeed-summary-width
                                (window-width))
                             t))))
-    (switch-to-buffer (elfeed-search-buffer)))
-  (unless (eq major-mode 'elfeed-search-mode)
+    (display-buffer (elfeed-search-buffer)))
+  (with-current-buffer (elfeed-search-buffer)
     (elfeed-search-mode)))
 
 (defun elfeed-summary--goto-feed (feed show-read)
@@ -1632,7 +1632,7 @@ options."
     (with-current-buffer buffer
       (elfeed-summary--render
        (elfeed-summary--get-data)))
-    (switch-to-buffer buffer)
+    (display-buffer buffer)
     (goto-char (point-min))))
 
 (provide 'elfeed-summary)
